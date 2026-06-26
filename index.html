@@ -1,0 +1,666 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<title>Bethel · Enlace WebRTC</title>
+<style>
+  :root{
+    --live:#ff2330; --ready:#46d65a; --bt:#00e676;
+    --panel:rgba(16,18,22,.74); --panel-solid:#14161a;
+    --stroke:rgba(255,255,255,.10);
+    --txt:#ffffff; --muted:#9aa0aa; --dim:#6b7178;
+    --vu-g:#36d34a; --vu-y:#ffd21e; --vu-r:#ff3b30;
+    --r:14px;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;margin:0;background:#000;overflow:hidden;color:var(--txt);
+    user-select:none;-webkit-user-select:none;touch-action:manipulation}
+  button{font-family:inherit;color:inherit;border:0;background:none;cursor:pointer}
+
+  /* ===== escenario a pantalla completa ===== */
+  #stage{position:fixed;inset:0;background:#000;overflow:hidden}
+  #video,#remote{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+  #remote{display:none}
+  #video.mirror{transform:scaleX(-1)}
+  #stage::after{content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(180deg,rgba(0,0,0,.45) 0%,transparent 16%,transparent 78%,rgba(0,0,0,.55) 100%)}
+
+  /* ===== barra superior ===== */
+  #topbar{position:absolute;top:max(14px,env(safe-area-inset-top));left:max(16px,env(safe-area-inset-left));
+    display:flex;align-items:stretch;gap:8px;z-index:20;max-width:74%}
+  .pchip{background:var(--panel);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border:1px solid var(--stroke);border-radius:var(--r);display:flex;align-items:center}
+  #statusGrp{padding:8px 14px 8px 8px;gap:12px;min-width:0}
+  #statusPill{font-weight:800;font-size:15px;letter-spacing:.5px;color:#fff;
+    padding:8px 14px;border-radius:9px;background:var(--live);line-height:1;white-space:nowrap;
+    box-shadow:0 0 0 0 rgba(255,35,48,.6)}
+  #statusPill.ready{background:var(--ready);color:#06210b;animation:none;box-shadow:none}
+  #statusPill.live{animation:pulse 1.6s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,35,48,.55)}70%{box-shadow:0 0 0 9px rgba(255,35,48,0)}100%{box-shadow:0 0 0 0 rgba(255,35,48,0)}}
+  #dest{font-size:18px;font-weight:600;color:#fff;background:none;border:0;outline:none;
+    min-width:60px;max-width:30vw;text-overflow:ellipsis}
+  .chip{padding:7px 12px;gap:2px;flex-direction:column;min-width:52px;text-align:center;line-height:1.05}
+  .chip b{font-size:16px;font-weight:800}
+  .chip span{font-size:11px;color:var(--muted)}
+  .chip.icon{justify-content:center}
+  .chip svg{width:22px;height:22px;display:block;margin:0 auto}
+  #btState{color:var(--dim)} #btState.on{color:var(--bt)}
+
+  /* ===== riel derecho ===== */
+  #rail{position:absolute;top:0;bottom:0;right:max(14px,env(safe-area-inset-right));
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;z-index:20}
+  .rbtn{width:50px;height:50px;display:grid;place-items:center;border-radius:50%;
+    background:rgba(0,0,0,.28);backdrop-filter:blur(8px)}
+  .rbtn svg{width:30px;height:30px;stroke:#fff;fill:none;stroke-width:1.8}
+  .rbtn:active{background:rgba(255,255,255,.16)}
+  #recBtn{width:74px;height:74px;border-radius:50%;background:var(--ready);
+    display:grid;place-items:center;box-shadow:0 6px 22px rgba(0,0,0,.4)}
+  #recBtn.live{background:var(--live)}
+  #recBtn .ic{width:30px;height:30px;stroke:#06210b;fill:none;stroke-width:2.2}
+  #recBtn.live .timer{color:#fff;font-weight:800;font-size:15px;letter-spacing:.3px;font-variant-numeric:tabular-nums}
+  #recBtn .timer{display:none}
+  #recBtn.live .ic{display:none}
+  #recBtn.live .timer{display:block}
+
+  /* ===== VU + telemetría inferior ===== */
+  #vu{position:absolute;left:max(20px,env(safe-area-inset-left));bottom:62px;display:flex;gap:6px;z-index:18}
+  .vucol{display:flex;flex-direction:column-reverse;gap:3px;align-items:center}
+  .vucol .led{width:14px;height:11px;border-radius:2px;background:#21262c;transition:background .05s}
+  .vucol .lbl{font-size:12px;font-weight:700;color:var(--muted);margin-top:3px}
+  #telemetry{position:absolute;left:max(16px,env(safe-area-inset-left));bottom:max(14px,env(safe-area-inset-bottom));
+    display:flex;align-items:flex-end;gap:20px;z-index:18;padding:4px 6px}
+  .tval{display:flex;align-items:baseline;gap:6px}
+  .tval .num{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1}
+  .tval .u{font-size:12px;color:var(--muted);font-weight:600}
+  .tval.icon{align-items:center}
+  .tval svg{width:22px;height:22px}
+  .tval .num.sm{font-size:20px}
+
+  /* ===== popovers (resolución / fuente) ===== */
+  .pop{position:absolute;z-index:30;background:var(--panel);backdrop-filter:blur(18px);
+    -webkit-backdrop-filter:blur(18px);border:1px solid var(--stroke);border-radius:18px;
+    padding:14px;display:none;animation:fade .12s ease}
+  .pop.show{display:flex}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  #resPop{top:78px;left:38%;gap:16px}
+  #resSlider{writing-mode:vertical-lr;direction:rtl;width:34px;height:300px;accent-color:var(--ready)}
+  .reslist{display:flex;flex-direction:column;gap:2px}
+  .resitem{display:flex;flex-direction:column;align-items:center;padding:8px 14px;border-radius:10px;
+    color:var(--muted);min-width:78px}
+  .resitem svg{width:30px;height:24px;stroke:currentColor;fill:none;stroke-width:1.6}
+  .resitem b{font-size:14px;font-weight:700;margin-top:2px}
+  .resitem.active{color:var(--ready)}
+  .resitem:active{background:rgba(255,255,255,.08)}
+  .srccol{display:flex;flex-direction:column;align-items:center;gap:18px;padding:8px 6px;
+    border-left:1px solid var(--stroke);margin-left:4px}
+  .srccol .head{color:var(--bt);font-weight:800;font-size:18px}
+  .srcbtn{display:grid;place-items:center;color:var(--muted)}
+  .srcbtn.active{color:#fff}
+  .srcbtn svg{width:30px;height:30px;stroke:currentColor;fill:none;stroke-width:1.7}
+
+  /* ===== drawer de ajustes ===== */
+  #scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:40;display:none}
+  #scrim.show{display:block}
+  #drawer{position:fixed;top:0;right:0;bottom:0;width:min(420px,90vw);z-index:50;
+    background:var(--panel-solid);border-left:1px solid var(--stroke);
+    transform:translateX(100%);transition:transform .22s ease;overflow-y:auto;
+    padding:18px 18px calc(28px + env(safe-area-inset-bottom));padding-right:max(18px,env(safe-area-inset-right))}
+  #drawer.show{transform:none}
+  #drawer h2{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);
+    margin:22px 0 10px;font-weight:700}
+  #drawer h2:first-of-type{margin-top:6px}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:11px 0;
+    border-bottom:1px solid rgba(255,255,255,.05)}
+  .row label{font-size:14.5px;font-weight:500}
+  .row .hint{font-size:11.5px;color:var(--dim);margin-top:3px;line-height:1.35;max-width:220px}
+  .seg{display:flex;background:#0c0e11;border:1px solid var(--stroke);border-radius:10px;overflow:hidden}
+  .seg button{padding:8px 11px;font-size:12.5px;font-weight:600;color:var(--muted)}
+  .seg button.on{background:var(--ready);color:#06210b}
+  select,input[type=text]{background:#0c0e11;border:1px solid var(--stroke);color:#fff;
+    border-radius:10px;padding:9px 11px;font-size:13.5px;font-family:inherit;outline:none;width:160px}
+  input[type=range]{accent-color:var(--ready);width:150px}
+  .toggle{width:50px;height:29px;border-radius:15px;background:#2a2f36;position:relative;transition:background .15s;flex:0 0 auto}
+  .toggle.on{background:var(--ready)}
+  .toggle::after{content:"";position:absolute;top:3px;left:3px;width:23px;height:23px;border-radius:50%;
+    background:#fff;transition:transform .15s}
+  .toggle.on::after{transform:translateX(21px)}
+  .closeX{position:absolute;top:14px;right:16px;width:34px;height:34px;border-radius:50%;
+    background:#1c2026;display:grid;place-items:center;font-size:20px;color:var(--muted)}
+  .dtitle{font-size:20px;font-weight:800;margin:2px 0 4px}
+  .dsub{font-size:12.5px;color:var(--dim);margin-bottom:8px}
+
+  /* ===== bloque maestro latencia ===== */
+  #latCard{background:#0c0e11;border:1px solid var(--stroke);border-radius:16px;padding:16px;margin-top:6px}
+  #latVal{font-size:30px;font-weight:800;font-variant-numeric:tabular-nums}
+  #latVal small{font-size:14px;color:var(--muted);font-weight:600}
+  #latSlider{width:100%;margin:14px 0 6px;accent-color:var(--ready)}
+  #latMode{font-size:13px;font-weight:700;color:var(--ready);margin-bottom:10px}
+  .meterline{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin:6px 0 3px}
+  .bar{height:8px;border-radius:5px;background:#21262c;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:5px;transition:width .25s,background .25s}
+  .presets{display:flex;gap:7px;margin-top:14px}
+  .presets button{flex:1;padding:9px 4px;border-radius:10px;border:1px solid var(--stroke);
+    background:#10131700;font-size:11.5px;font-weight:600;color:var(--muted)}
+  .presets button.on{border-color:var(--ready);color:var(--ready);background:rgba(70,214,90,.08)}
+
+  /* toast */
+  #toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(20px);
+    background:#0c0e11;border:1px solid var(--stroke);color:#fff;padding:11px 18px;border-radius:12px;
+    font-size:13.5px;z-index:60;opacity:0;pointer-events:none;transition:.2s;max-width:80vw;text-align:center}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  .hidden{display:none!important}
+  #overlays.collapsed #topbar,#overlays.collapsed #vu,#overlays.collapsed #telemetry,
+  #overlays.collapsed .rbtn:not(#collapseBtn){opacity:0;pointer-events:none;transition:opacity .18s}
+
+  /* start gate */
+  #gate{position:fixed;inset:0;z-index:70;background:#0a0c0f;display:grid;place-items:center;text-align:center;padding:24px}
+  #gate .box{max-width:380px}
+  #gate h1{font-size:24px;font-weight:800;margin:0 0 6px}
+  #gate p{color:var(--muted);font-size:14px;line-height:1.5;margin:0 0 22px}
+  #startBtn{background:var(--ready);color:#06210b;font-weight:800;font-size:16px;
+    padding:15px 30px;border-radius:14px}
+  #gate small{display:block;color:var(--dim);font-size:12px;margin-top:18px;line-height:1.5}
+  .logo{width:54px;height:54px;border-radius:14px;background:linear-gradient(135deg,#46d65a,#00b894);
+    display:grid;place-items:center;margin:0 auto 16px;font-weight:800;color:#06210b;font-size:22px}
+</style>
+</head>
+<body>
+
+<div id="stage">
+  <video id="video" autoplay playsinline muted></video>
+  <video id="remote" autoplay playsinline muted></video>
+</div>
+
+<div id="overlays">
+  <!-- barra superior -->
+  <div id="topbar">
+    <div class="pchip" id="statusGrp">
+      <button id="statusPill" class="ready">READY</button>
+      <input id="dest" value="CNN-1 Newsroom" spellcheck="false">
+    </div>
+    <button class="pchip chip" id="latChip">
+      <b id="latChipVal">1.5</b><span>seg</span>
+    </button>
+    <button class="pchip chip icon" id="resChip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><rect x="2" y="6" width="15" height="12" rx="2"/><path d="M17 10l5-3v10l-5-3" stroke-linejoin="round"/></svg>
+      <span id="resChipVal">720p</span>
+    </button>
+    <button class="pchip chip icon" id="btChip">
+      <svg id="btState" class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M7 7l10 10-5 4V3l5 4L7 17"/></svg>
+    </button>
+  </div>
+
+  <!-- riel derecho -->
+  <div id="rail">
+    <button class="rbtn" id="flipBtn" title="Cambiar cámara">
+      <svg viewBox="0 0 24 24"><path d="M15 7h3a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2V9a2 2 0 012-2h3"/><circle cx="12" cy="13" r="3"/><path d="M9 7l1.5-2.5h3L15 7" stroke-linejoin="round"/><path d="M19.5 4.5a6 6 0 00-8-1" stroke-linecap="round"/></svg>
+    </button>
+    <button class="rbtn" id="cloudBtn" title="Destino de publicación">
+      <svg viewBox="0 0 24 24"><path d="M7 18a4 4 0 01-.5-7.97A5.5 5.5 0 0117.5 9.5 4 4 0 0117 18H7z"/><path d="M12 15V9m0 0l-2.5 2.5M12 9l2.5 2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button id="recBtn">
+      <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3" stroke-linejoin="round"/></svg>
+      <span class="timer" id="recTimer">00:00:00</span>
+    </button>
+    <button class="rbtn" id="collapseBtn" title="Vista limpia">
+      <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button class="rbtn" id="gearBtn" title="Ajustes">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 13a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-2.9 1.2V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-2.9-1.2l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00-1.2-2.9H3a2 2 0 110-4h.1a1.7 1.7 0 001.2-2.9l-.1-.1A2 2 0 117 4.2l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>
+    </button>
+  </div>
+
+  <!-- VU meters -->
+  <div id="vu">
+    <div class="vucol" id="vuL"><span class="lbl">L</span></div>
+    <div class="vucol" id="vuR"><span class="lbl">R</span></div>
+  </div>
+
+  <!-- telemetría -->
+  <div id="telemetry">
+    <div class="tval"><span class="num" id="tBitrate">0</span><span class="u">Kbps</span></div>
+    <div class="tval icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#46d65a" stroke-width="1.8"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></svg>
+      <span class="num sm" id="tRes">—</span>
+    </div>
+    <div class="tval icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#46d65a" stroke-width="1.8"><path d="M2 9a15 15 0 0120 0M5 13a10 10 0 0114 0M8.5 16.5a5 5 0 017 0" stroke-linecap="round"/><circle cx="12" cy="20" r="1.2" fill="#46d65a" stroke="none"/></svg>
+      <span class="num sm" id="tRtt">—</span><span class="u">ms</span>
+    </div>
+  </div>
+</div>
+
+<!-- popover resolución + fuentes -->
+<div class="pop" id="resPop">
+  <input type="range" id="resSlider" min="0" max="4" step="1" value="3">
+  <div class="reslist" id="resList"></div>
+  <div class="srccol">
+    <div class="head">iRig</div>
+    <button class="srcbtn active" id="srcMic" title="Micrófono">
+      <svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0012 0M12 17v4M9 21h6" stroke-linecap="round"/></svg>
+    </button>
+    <button class="srcbtn" id="srcMon" title="Monitoreo">
+      <svg viewBox="0 0 24 24"><path d="M4 13v-1a8 8 0 0116 0v1M4 13a2 2 0 012 2v2a2 2 0 01-2 2 2 2 0 01-2-2v-2a2 2 0 012-2zM20 13a2 2 0 00-2 2v2a2 2 0 002 2 2 2 0 002-2v-2a2 2 0 00-2-2z"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- drawer de ajustes -->
+<div id="scrim"></div>
+<div id="drawer">
+  <div class="closeX" id="closeDrawer">×</div>
+  <div class="dtitle">Ajustes de enlace</div>
+  <div class="dsub">WebRTC · transporte de muy baja latencia</div>
+
+  <h2>Latencia ⇄ corrección de errores</h2>
+  <div id="latCard">
+    <div><span id="latVal">1500<small> ms</small></span></div>
+    <div id="latMode">Equilibrado · FEC + retransmisión</div>
+    <input type="range" id="latSlider" min="60" max="3000" step="20" value="1500">
+
+    <div class="meterline"><span>Robustez ante pérdidas</span><span id="robustPct">—</span></div>
+    <div class="bar"><i id="robustBar" style="width:50%;background:var(--ready)"></i></div>
+
+    <div class="meterline" style="margin-top:10px"><span>Bitrate útil de video</span><span id="usefulPct">—</span></div>
+    <div class="bar"><i id="usefulBar" style="width:80%;background:var(--bt)"></i></div>
+
+    <div class="presets" id="presets">
+      <button data-lat="120">Ultra baja<br>deportes</button>
+      <button data-lat="1500" class="on">Equilibrado</button>
+      <button data-lat="2600">Robusto<br>enlace débil</button>
+    </div>
+  </div>
+
+  <h2>Video</h2>
+  <div class="row">
+    <div><label>Bitrate objetivo</label><div class="hint"><span id="brLabel">5.0</span> Mbps máximo del codificador</div></div>
+    <input type="range" id="brSlider" min="300" max="12000" step="100" value="5000">
+  </div>
+  <div class="row">
+    <div><label>Códec</label><div class="hint">VP9/AV1 = mejor compresión; H264 = compatibilidad</div></div>
+    <select id="codecSel"><option>VP8</option><option selected>VP9</option><option>H264</option><option>AV1</option></select>
+  </div>
+  <div class="row">
+    <div><label>Prioridad de degradación</label><div class="hint">Qué sacrificar al caer el ancho de banda</div></div>
+    <select id="degSel"><option value="maintain-framerate">Mantener fluidez</option><option value="maintain-resolution">Mantener nitidez</option><option value="balanced" selected>Balanceado</option></select>
+  </div>
+  <div class="row">
+    <div><label>Tipo de contenido</label><div class="hint">«Movimiento» prioriza fps (deportes/vivo)</div></div>
+    <select id="hintSel"><option value="motion" selected>Movimiento</option><option value="detail">Detalle</option><option value="text">Texto/gráficos</option></select>
+  </div>
+
+  <h2>Audio</h2>
+  <div class="row">
+    <div><label>FEC en banda (Opus)</label><div class="hint">Recupera audio sin esperar retransmisión</div></div>
+    <div class="toggle on" id="aFecTog"></div>
+  </div>
+  <div class="row">
+    <div><label>DTX (silencios)</label><div class="hint">Reduce datos cuando no hay voz</div></div>
+    <div class="toggle" id="dtxTog"></div>
+  </div>
+  <div class="row">
+    <div><label>Bitrate de audio</label><div class="hint"><span id="aBrLabel">128</span> kbps Opus estéreo</div></div>
+    <input type="range" id="aBrSlider" min="16" max="256" step="8" value="128">
+  </div>
+
+  <h2>Transporte</h2>
+  <div class="row">
+    <div><label>FEC de video</label><div class="hint">Redundancia anti-pérdida (gestionada por latencia)</div></div>
+    <div class="toggle on" id="vFecTog"></div>
+  </div>
+  <div class="row">
+    <div><label>Servidor de señalización</label><div class="hint">WebSocket para enlace real punto a punto</div></div>
+    <input type="text" id="sigUrl" placeholder="wss://señalización.bethel..." value="">
+  </div>
+  <div class="row">
+    <div><label>Servidor TURN/STUN</label><div class="hint">Necesario para atravesar NAT/CGNAT</div></div>
+    <input type="text" id="turnUrl" placeholder="turn:host:3478" value="stun:stun.l.google.com:19302">
+  </div>
+  <div class="row">
+    <div><label>Modo de prueba (loopback)</label><div class="hint">Conecta emisor↔receptor local para medir</div></div>
+    <div class="toggle on" id="loopTog"></div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<!-- start gate -->
+<div id="gate">
+  <div class="box">
+    <div class="logo">B</div>
+    <h1>Enlace WebRTC · Bethel</h1>
+    <p>Emisión de muy baja latencia con control fino de corrección de errores. Concede acceso a cámara y micrófono para iniciar.</p>
+    <button id="startBtn">Iniciar enlace</button>
+    <small>El modo de prueba mide el motor en este mismo dispositivo. Para emitir a otro punto, configura señalización y TURN en Ajustes.</small>
+  </div>
+</div>
+
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2200);}
+
+/* ---------- estado ---------- */
+const RES = [
+  {k:'360p', w:640,  h:360 },
+  {k:'480p', w:854,  h:480 },
+  {k:'540p', w:960,  h:540 },
+  {k:'720p', w:1280, h:720 },
+  {k:'1080p',w:1920, h:1080}
+];
+const state = {
+  facing:'environment',
+  resIdx:3,
+  bitrate:5000,        // kbps video objetivo
+  aBitrate:128,        // kbps audio
+  latency:1500,        // ms (jitter buffer objetivo)
+  codec:'VP9',
+  degradation:'balanced',
+  contentHint:'motion',
+  vfec:true,
+  afec:true,
+  dtx:false,
+  loopback:true,
+  live:false
+};
+
+let stream=null, pc1=null, pc2=null, audioCtx=null, analyserL=null, analyserR=null;
+let statsTimer=null, vuRAF=null, recStart=0, recTimer=null, lastBytes=0, lastTs=0;
+
+/* ---------- VU meters ---------- */
+const LEDN = 9;
+function buildVU(col){ for(let i=0;i<LEDN;i++){const d=document.createElement('div');d.className='led';col.insertBefore(d, col.firstChild);} }
+buildVU($('#vuL')); buildVU($('#vuR'));
+function paintVU(col,level){
+  const leds=col.querySelectorAll('.led'); const on=Math.round(level*LEDN);
+  leds.forEach((l,i)=>{ // i=0 abajo
+    if(i<on){ l.style.background = i>=7?'var(--vu-r)':(i>=5?'var(--vu-y)':'var(--vu-g)'); }
+    else l.style.background='#21262c';
+  });
+}
+function setupAnalyser(s){
+  try{
+    audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+    const src = audioCtx.createMediaStreamSource(s);
+    const splitter = audioCtx.createChannelSplitter(2);
+    src.connect(splitter);
+    analyserL = audioCtx.createAnalyser(); analyserL.fftSize=512;
+    analyserR = audioCtx.createAnalyser(); analyserR.fftSize=512;
+    splitter.connect(analyserL,0); splitter.connect(analyserR, s.getAudioTracks().length?1:0);
+    const bufL=new Uint8Array(analyserL.fftSize), bufR=new Uint8Array(analyserR.fftSize);
+    const rms=(buf,an)=>{an.getByteTimeDomainData(buf);let s=0;for(let i=0;i<buf.length;i++){const v=(buf[i]-128)/128;s+=v*v;}return Math.min(1,Math.sqrt(s/buf.length)*3.2);};
+    let pL=0,pR=0;
+    const loop=()=>{ const l=rms(bufL,analyserL), r=rms(bufR,analyserR);
+      pL=Math.max(l,pL*0.86); pR=Math.max(r,pR*0.86);
+      paintVU($('#vuL'),pL); paintVU($('#vuR'),pR); vuRAF=requestAnimationFrame(loop); };
+    loop();
+  }catch(e){ console.warn('VU',e); }
+}
+
+/* ---------- captura ---------- */
+async function getStream(){
+  if(stream){ stream.getTracks().forEach(t=>t.stop()); }
+  const r = RES[state.resIdx];
+  const constraints = {
+    audio:{ echoCancellation:false, noiseSuppression:false, autoGainControl:false, channelCount:2 },
+    video:{ facingMode:state.facing, width:{ideal:r.w}, height:{ideal:r.h}, frameRate:{ideal:30} }
+  };
+  stream = await navigator.mediaDevices.getUserMedia(constraints);
+  const vt = stream.getVideoTracks()[0];
+  if('contentHint' in vt) vt.contentHint = state.contentHint;
+  $('#video').srcObject = stream;
+  $('#video').classList.toggle('mirror', state.facing==='user');
+  if(vuRAF) cancelAnimationFrame(vuRAF);
+  if(audioCtx){ try{audioCtx.close();}catch(e){} }
+  setupAnalyser(stream);
+}
+
+/* ---------- SDP munging ---------- */
+function preferCodec(sdp, kind, codec){
+  const lines = sdp.split('\r\n');
+  const mIdx = lines.findIndex(l=>l.startsWith('m='+kind));
+  if(mIdx<0) return sdp;
+  const re = new RegExp('a=rtpmap:(\\d+) '+codec+'/','i');
+  const pts=[];
+  lines.forEach(l=>{const m=l.match(re); if(m) pts.push(m[1]);});
+  if(!pts.length) return sdp;
+  const parts = lines[mIdx].split(' ');
+  const header = parts.slice(0,3);
+  const rest = parts.slice(3).filter(p=>!pts.includes(p));
+  lines[mIdx] = header.concat(pts, rest).join(' ');
+  return lines.join('\r\n');
+}
+function setOpusFmtp(sdp){
+  const lines=sdp.split('\r\n');
+  const m=lines.find(l=>l.match(/a=rtpmap:(\d+) opus/i));
+  if(!m) return sdp;
+  const pt=m.match(/a=rtpmap:(\d+)/)[1];
+  const extra=[`maxaveragebitrate=${state.aBitrate*1000}`,`stereo=1`,`useinbandfec=${state.afec?1:0}`,`usedtx=${state.dtx?1:0}`];
+  const fi=lines.findIndex(l=>l.startsWith('a=fmtp:'+pt));
+  if(fi>=0){ let f=lines[fi].split(' ').slice(1).join(' ').split(';').filter(Boolean);
+    const keep=f.filter(p=>!/maxaveragebitrate|stereo|useinbandfec|usedtx/.test(p));
+    lines[fi]='a=fmtp:'+pt+' '+keep.concat(extra).join(';');
+  } else { const ri=lines.findIndex(l=>l.startsWith('a=rtpmap:'+pt)); lines.splice(ri+1,0,'a=fmtp:'+pt+' '+extra.join(';')); }
+  return lines.join('\r\n');
+}
+function stripVideoFEC(sdp){
+  if(state.vfec) return sdp;
+  const lines=sdp.split('\r\n');
+  const fecPts=[];
+  lines.forEach(l=>{const m=l.match(/a=rtpmap:(\d+) (ulpfec|red|flexfec[\w-]*)\//i); if(m)fecPts.push(m[1]);});
+  if(!fecPts.length) return sdp;
+  const out=[];
+  for(const l of lines){
+    if(fecPts.some(pt=>l.match(new RegExp('a=(rtpmap|fmtp|rtcp-fb):'+pt+'\\b')))) continue;
+    if(l.startsWith('m=video')){ const p=l.split(' '); out.push(p.filter(x=>!fecPts.includes(x)).join(' ')); continue; }
+    out.push(l);
+  }
+  return out.join('\r\n');
+}
+function munge(sdp){
+  sdp = preferCodec(sdp,'video',state.codec==='H264'?'H264':state.codec==='AV1'?'AV1':state.codec);
+  sdp = preferCodec(sdp,'audio','opus');
+  sdp = setOpusFmtp(sdp);
+  sdp = stripVideoFEC(sdp);
+  return sdp;
+}
+
+/* ---------- parámetros del sender/receiver ---------- */
+async function applySenderParams(){
+  if(!pc1) return;
+  const s = pc1.getSenders().find(x=>x.track&&x.track.kind==='video');
+  if(!s) return;
+  const p = s.getParameters();
+  if(!p.encodings||!p.encodings.length) p.encodings=[{}];
+  p.encodings[0].maxBitrate = state.bitrate*1000;
+  p.encodings[0].networkPriority = 'high';
+  try{ p.degradationPreference = state.degradation; }catch(e){}
+  try{ await s.setParameters(p); }catch(e){ console.warn('setParameters',e); }
+}
+function applyReceiverParams(){
+  if(!pc2) return;
+  pc2.getReceivers().forEach(r=>{
+    const sec = state.latency/1000;
+    if('jitterBufferTarget' in r) r.jitterBufferTarget = state.latency;
+    if('playoutDelayHint' in r) r.playoutDelayHint = sec;
+  });
+}
+
+/* ---------- conexión (loopback o real) ---------- */
+function iceConfig(){
+  const url=$('#turnUrl').value.trim();
+  const ice=[]; if(url){ ice.push(url.startsWith('turn')?{urls:url}:{urls:url}); }
+  return {iceServers: ice.length?ice:[{urls:'stun:stun.l.google.com:19302'}]};
+}
+async function connectLoopback(){
+  closePC();
+  const cfg = iceConfig();
+  pc1 = new RTCPeerConnection(cfg);
+  pc2 = new RTCPeerConnection(cfg);
+  pc1.onicecandidate = e=> e.candidate && pc2.addIceCandidate(e.candidate).catch(()=>{});
+  pc2.onicecandidate = e=> e.candidate && pc1.addIceCandidate(e.candidate).catch(()=>{});
+  pc2.ontrack = e=>{ $('#remote').srcObject = e.streams[0]; applyReceiverParams(); };
+  stream.getTracks().forEach(t=>pc1.addTrack(t,stream));
+  let offer = await pc1.createOffer();
+  offer = {type:offer.type, sdp:munge(offer.sdp)};
+  await pc1.setLocalDescription(offer);
+  await pc2.setRemoteDescription(offer);
+  let answer = await pc2.createAnswer();
+  answer = {type:answer.type, sdp:munge(answer.sdp)};
+  await pc2.setLocalDescription(answer);
+  await pc1.setRemoteDescription(answer);
+  await applySenderParams();
+  applyReceiverParams();
+  startStats();
+}
+function closePC(){ [pc1,pc2].forEach(p=>{if(p){p.getSenders().forEach(s=>{});p.close();}}); pc1=pc2=null; }
+
+/* ---------- stats en vivo ---------- */
+function startStats(){
+  if(statsTimer) clearInterval(statsTimer);
+  lastBytes=0; lastTs=0;
+  statsTimer=setInterval(async()=>{
+    if(!pc1) return;
+    let kbps=0,fps=0,w=0,h=0,rtt=null,loss=null;
+    const rep = await pc1.getStats();
+    rep.forEach(r=>{
+      if(r.type==='outbound-rtp'&&r.kind==='video'&&!r.isRemote){
+        if(lastTs){ const db=r.bytesSent-lastBytes, dt=(r.timestamp-lastTs)/1000; if(dt>0)kbps=(db*8/1000)/dt; }
+        lastBytes=r.bytesSent; lastTs=r.timestamp;
+        fps=r.framesPerSecond||0; w=r.frameWidth||0; h=r.frameHeight||0;
+      }
+      if(r.type==='remote-inbound-rtp'&&r.kind==='video'){ if(r.roundTripTime!=null)rtt=r.roundTripTime*1000; loss=r.fractionLost; }
+      if(r.type==='candidate-pair'&&r.state==='succeeded'&&r.currentRoundTripTime!=null&&rtt==null) rtt=r.currentRoundTripTime*1000;
+    });
+    $('#tBitrate').textContent = kbps?Math.round(kbps).toLocaleString('es'):'0';
+    $('#tRes').textContent = w?`${w}×${h}`:'—';
+    $('#tRtt').textContent = rtt!=null?Math.round(rtt):'—';
+  },1000);
+}
+
+/* ---------- modelo latencia ⇄ FEC ⇄ bitrate ---------- */
+function applyLatencyModel(){
+  const ms = state.latency;
+  // FEC se activa con baja latencia (no hay tiempo para retransmitir)
+  const fecZone = ms < 800;        // por debajo: dependemos de FEC
+  state.vfec = fecZone;
+  $('#vFecTog').classList.toggle('on', state.vfec);
+  // overhead de FEC ~ inverso a la latencia (más redundancia cuanto menor latencia)
+  const fecOverhead = fecZone ? Math.max(0, (800-ms)/800)*0.30 : 0; // hasta 30%
+  const useful = Math.round((1-fecOverhead)*100);
+  // robustez: combinación de margen para retransmitir (NACK) + FEC
+  const nackRoom = Math.min(1, ms/2600);
+  const robust = Math.round(Math.max(fecOverhead*100/0.30*0.6, nackRoom*100));
+  let mode;
+  if(ms<300) mode='Ultra baja · FEC agresivo (sin retransmisión)';
+  else if(ms<800) mode='Baja · FEC + algo de retransmisión';
+  else if(ms<1800) mode='Equilibrado · FEC ligero + retransmisión';
+  else mode='Robusto · solo retransmisión (NACK/RTX)';
+  $('#latMode').textContent = mode;
+  $('#robustBar').style.width = robust+'%';
+  $('#robustBar').style.background = robust>66?'var(--ready)':robust>33?'var(--vu-y)':'var(--vu-r)';
+  $('#usefulBar').style.width = useful+'%';
+  $('#robustPct').textContent = robust+'%';
+  $('#usefulPct').textContent = useful+'% ('+((state.bitrate*useful/100/1000).toFixed(1))+' Mbps)';
+  $('#latVal').innerHTML = ms+'<small> ms</small>';
+  $('#latChipVal').textContent = (ms/1000).toFixed(1);
+  // presets activos
+  document.querySelectorAll('#presets button').forEach(b=>b.classList.toggle('on', Math.abs(+b.dataset.lat-ms)<60));
+  applyReceiverParams();
+}
+
+/* ---------- UI: resolución popover ---------- */
+function buildResList(){
+  const el=$('#resList'); el.innerHTML='';
+  [...RES].reverse().forEach(r=>{
+    const idx = RES.indexOf(r);
+    const b=document.createElement('button'); b.className='resitem'+(idx===state.resIdx?' active':'');
+    b.innerHTML=`<svg viewBox="0 0 24 18"><rect x="1" y="2" width="16" height="13" rx="2"/><path d="M17 6l6-3v12l-6-3"/></svg><b>${r.k}</b>`;
+    b.onclick=async()=>{ state.resIdx=idx; $('#resChipVal').textContent=r.k; $('#resSlider').value=idx; buildResList();
+      await getStream(); if(pc1) reconnect(); toast('Resolución: '+r.k); };
+    el.appendChild(b);
+  });
+}
+async function reconnect(){ if(state.loopback) await connectLoopback(); }
+
+/* ---------- arranque ---------- */
+$('#startBtn').onclick = async ()=>{
+  try{
+    await getStream();
+    $('#gate').classList.add('hidden');
+    buildResList();
+    applyLatencyModel();
+    if(state.loopback) await connectLoopback();
+    toast('Enlace listo · modo prueba');
+  }catch(e){ toast('No se pudo acceder a cámara/micrófono'); console.error(e); }
+};
+
+/* ---------- controles barra superior ---------- */
+$('#statusPill').onclick = ()=>{
+  state.live=!state.live;
+  const p=$('#statusPill'), r=$('#recBtn');
+  if(state.live){ p.classList.remove('ready'); p.classList.add('live'); p.textContent='LIVE'; r.classList.add('live');
+    recStart=Date.now(); recTimer=setInterval(updTimer,1000); updTimer(); toast('AL AIRE'); }
+  else { p.classList.add('ready'); p.classList.remove('live'); p.textContent='READY'; r.classList.remove('live');
+    clearInterval(recTimer); toast('En espera'); }
+};
+$('#recBtn').onclick = ()=> $('#statusPill').click();
+function updTimer(){ const s=Math.floor((Date.now()-recStart)/1000);
+  const hh=String(Math.floor(s/3600)).padStart(2,'0'), mm=String(Math.floor(s/60)%60).padStart(2,'0'), ss=String(s%60).padStart(2,'0');
+  $('#recTimer').textContent=`${hh}:${mm}:${ss}`; }
+
+$('#flipBtn').onclick = async ()=>{ state.facing = state.facing==='user'?'environment':'user';
+  await getStream(); if(pc1) reconnect(); };
+$('#collapseBtn').onclick = ()=> $('#overlays').classList.toggle('collapsed');
+$('#cloudBtn').onclick = ()=> toast('Destino: '+$('#dest').value);
+
+$('#latChip').onclick = ()=> openDrawer();
+$('#btChip').onclick = ()=>{ $('#btState').classList.toggle('on'); toast($('#btState').classList.contains('on')?'Audio Bluetooth activo':'Audio Bluetooth apagado'); };
+
+/* resolución popover */
+$('#resChip').onclick = ()=> $('#resPop').classList.toggle('show');
+$('#resSlider').oninput = async (e)=>{ state.resIdx=+e.target.value; const r=RES[state.resIdx];
+  $('#resChipVal').textContent=r.k; buildResList(); };
+$('#resSlider').onchange = async ()=>{ await getStream(); if(pc1) reconnect(); toast('Resolución: '+RES[state.resIdx].k); };
+$('#srcMic').onclick=()=>{ $('#srcMic').classList.add('active'); $('#srcMon').classList.remove('active'); toast('Fuente: micrófono'); };
+$('#srcMon').onclick=()=>{ $('#srcMon').classList.add('active'); $('#srcMic').classList.remove('active'); toast('Monitoreo activado'); };
+document.addEventListener('click',e=>{ if(!$('#resPop').contains(e.target)&&e.target!==$('#resChip')&&!$('#resChip').contains(e.target)) $('#resPop').classList.remove('show'); });
+
+/* ---------- drawer ---------- */
+function openDrawer(){ $('#drawer').classList.add('show'); $('#scrim').classList.add('show'); }
+function closeDrawer(){ $('#drawer').classList.remove('show'); $('#scrim').classList.remove('show'); }
+$('#gearBtn').onclick=openDrawer; $('#closeDrawer').onclick=closeDrawer; $('#scrim').onclick=closeDrawer;
+
+$('#latSlider').oninput=e=>{ state.latency=+e.target.value; applyLatencyModel(); };
+$('#latSlider').onchange=()=>{ if(state.vfec!==undefined && pc1) reconnect(); };
+document.querySelectorAll('#presets button').forEach(b=> b.onclick=()=>{ state.latency=+b.dataset.lat; $('#latSlider').value=state.latency; applyLatencyModel(); if(pc1) reconnect(); });
+
+$('#brSlider').oninput=e=>{ state.bitrate=+e.target.value; $('#brLabel').textContent=(state.bitrate/1000).toFixed(1); applyLatencyModel(); };
+$('#brSlider').onchange=()=> applySenderParams();
+$('#aBrSlider').oninput=e=>{ state.aBitrate=+e.target.value; $('#aBrLabel').textContent=state.aBitrate; };
+$('#aBrSlider').onchange=()=>{ if(pc1) reconnect(); };
+
+$('#codecSel').onchange=e=>{ state.codec=e.target.value; if(pc1) reconnect(); toast('Códec: '+state.codec); };
+$('#degSel').onchange=e=>{ state.degradation=e.target.value; applySenderParams(); };
+$('#hintSel').onchange=e=>{ state.contentHint=e.target.value; const vt=stream&&stream.getVideoTracks()[0]; if(vt&&'contentHint'in vt)vt.contentHint=state.contentHint; };
+
+function bindTog(id,key,after){ $(id).onclick=()=>{ state[key]=!state[key]; $(id).classList.toggle('on',state[key]); after&&after(); }; }
+bindTog('#aFecTog','afec',()=>{ if(pc1) reconnect(); });
+bindTog('#dtxTog','dtx',()=>{ if(pc1) reconnect(); });
+bindTog('#vFecTog','vfec',()=>{ if(pc1) reconnect(); });
+bindTog('#loopTog','loopback',()=>{ if(state.loopback){ if(stream)connectLoopback(); } else { closePC(); $('#remote').srcObject=null; toast('Loopback apagado · usa señalización real'); } });
+
+/* doble toque sobre el video = pantalla limpia */
+$('#stage').addEventListener('dblclick',()=> $('#overlays').classList.toggle('collapsed'));
+
+/* solicita pantalla completa al primer toque tras iniciar (Android) */
+let fsAsked=false;
+document.addEventListener('touchend',()=>{ if(!fsAsked && !$('#gate').classList.contains('hidden')===false){return;} },{passive:true});
+$('#startBtn').addEventListener('click',()=>{ const el=document.documentElement; setTimeout(()=>{ if(el.requestFullscreen)el.requestFullscreen().catch(()=>{}); },300); });
+</script>
+</body>
+</html>
