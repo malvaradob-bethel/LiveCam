@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#000000">
+<title>Bethel · Enlace WebRTC</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.14.1/mqtt.min.js"></script>
+<style>
+  :root{
+    --live:#ff2330; --ready:#46d65a; --bt:#00e676;
+    --panel:rgba(16,18,22,.74); --panel-solid:#14161a;
+    --stroke:rgba(255,255,255,.10);
+    --txt:#ffffff; --muted:#9aa0aa; --dim:#6b7178;
+    --vu-g:#36d34a; --vu-y:#ffd21e; --vu-r:#ff3b30; --r:14px;
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,system-ui,sans-serif;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{height:100%;margin:0;background:#000;overflow:hidden;color:var(--txt);
+    user-select:none;-webkit-user-select:none;touch-action:manipulation}
+  button{font-family:inherit;color:inherit;border:0;background:none;cursor:pointer}
+
+  #stage{position:fixed;inset:0;background:#000;overflow:hidden}
+  #video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;background:#000}
+  #video.mirror{transform:scaleX(-1)}
+  #waiting{position:absolute;inset:0;display:none;place-items:center;text-align:center;color:var(--muted);z-index:5}
+  #waiting.show{display:grid}
+  #waiting .spin{width:46px;height:46px;border:3px solid #2a2f36;border-top-color:var(--ready);border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 14px}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  #stage::after{content:"";position:absolute;inset:0;pointer-events:none;
+    background:linear-gradient(180deg,rgba(0,0,0,.45) 0%,transparent 16%,transparent 78%,rgba(0,0,0,.55) 100%)}
+
+  #topbar{position:absolute;top:max(14px,env(safe-area-inset-top));left:max(16px,env(safe-area-inset-left));
+    display:flex;align-items:stretch;gap:8px;z-index:20;max-width:78%}
+  .pchip{background:var(--panel);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border:1px solid var(--stroke);border-radius:var(--r);display:flex;align-items:center}
+  #statusGrp{padding:8px 14px 8px 8px;gap:10px;min-width:0}
+  #statusPill{font-weight:800;font-size:15px;letter-spacing:.5px;color:#fff;
+    padding:8px 14px;border-radius:9px;background:var(--live);line-height:1;white-space:nowrap}
+  #statusPill.ready{background:var(--ready);color:#06210b}
+  #statusPill.live{animation:pulse 1.6s infinite}
+  #statusPill.wait{background:#2a2f36;color:var(--muted)}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,35,48,.55)}70%{box-shadow:0 0 0 9px rgba(255,35,48,0)}100%{box-shadow:0 0 0 0 rgba(255,35,48,0)}}
+  #dest{font-size:17px;font-weight:600;color:#fff;background:none;border:0;outline:none;min-width:50px;max-width:26vw;text-overflow:ellipsis}
+  #connDot{display:none;align-items:center;gap:5px;font-size:13px;font-weight:700;color:var(--ready);padding-left:2px}
+  #connDot.show{display:flex}
+  #connDot i{width:8px;height:8px;border-radius:50%;background:var(--ready);box-shadow:0 0 8px var(--ready)}
+  .chip{padding:7px 12px;gap:2px;flex-direction:column;min-width:52px;text-align:center;line-height:1.05}
+  .chip b{font-size:16px;font-weight:800}.chip span{font-size:11px;color:var(--muted)}
+  .chip.icon{justify-content:center}.chip svg{width:22px;height:22px;display:block;margin:0 auto}
+  #btState{color:var(--dim)}#btState.on{color:var(--bt)}
+
+  #rail{position:absolute;top:0;bottom:0;right:max(14px,env(safe-area-inset-right));
+    display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;z-index:20}
+  .rbtn{width:50px;height:50px;display:grid;place-items:center;border-radius:50%;background:rgba(0,0,0,.28);backdrop-filter:blur(8px)}
+  .rbtn svg{width:30px;height:30px;stroke:#fff;fill:none;stroke-width:1.8}
+  .rbtn:active{background:rgba(255,255,255,.16)}
+  #recBtn{width:74px;height:74px;border-radius:50%;background:var(--ready);display:grid;place-items:center;box-shadow:0 6px 22px rgba(0,0,0,.4)}
+  #recBtn.live{background:var(--live)}
+  #recBtn .ic{width:30px;height:30px;stroke:#06210b;fill:none;stroke-width:2.2}
+  #recBtn.live .timer{color:#fff;font-weight:800;font-size:15px;font-variant-numeric:tabular-nums}
+  #recBtn .timer{display:none}#recBtn.live .ic{display:none}#recBtn.live .timer{display:block}
+
+  #vu{position:absolute;left:max(20px,env(safe-area-inset-left));bottom:62px;display:flex;gap:6px;z-index:18}
+  .vucol{display:flex;flex-direction:column-reverse;gap:3px;align-items:center}
+  .vucol .led{width:14px;height:11px;border-radius:2px;background:#21262c;transition:background .05s}
+  .vucol .lbl{font-size:12px;font-weight:700;color:var(--muted);margin-top:3px}
+  #telemetry{position:absolute;left:max(16px,env(safe-area-inset-left));bottom:max(14px,env(safe-area-inset-bottom));
+    display:flex;align-items:flex-end;gap:20px;z-index:18;padding:4px 6px}
+  .tval{display:flex;align-items:baseline;gap:6px}
+  .tval .num{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1}
+  .tval .u{font-size:12px;color:var(--muted);font-weight:600}
+  .tval.icon{align-items:center}.tval svg{width:22px;height:22px}.tval .num.sm{font-size:20px}
+
+  .pop{position:absolute;z-index:30;background:var(--panel);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);
+    border:1px solid var(--stroke);border-radius:18px;padding:14px;display:none}
+  .pop.show{display:flex;animation:fade .12s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  #resPop{top:78px;left:38%;gap:16px}
+  #resSlider{writing-mode:vertical-lr;direction:rtl;width:34px;height:300px;accent-color:var(--ready)}
+  .reslist{display:flex;flex-direction:column;gap:2px}
+  .resitem{display:flex;flex-direction:column;align-items:center;padding:8px 14px;border-radius:10px;color:var(--muted);min-width:78px}
+  .resitem svg{width:30px;height:24px;stroke:currentColor;fill:none;stroke-width:1.6}
+  .resitem b{font-size:14px;font-weight:700;margin-top:2px}
+  .resitem.active{color:var(--ready)}.resitem:active{background:rgba(255,255,255,.08)}
+  .srccol{display:flex;flex-direction:column;align-items:center;gap:18px;padding:8px 6px;border-left:1px solid var(--stroke);margin-left:4px}
+  .srccol .head{color:var(--bt);font-weight:800;font-size:18px}
+  .srcbtn{display:grid;place-items:center;color:var(--muted)}.srcbtn.active{color:#fff}
+  .srcbtn svg{width:30px;height:30px;stroke:currentColor;fill:none;stroke-width:1.7}
+
+  #scrim{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:40;display:none}#scrim.show{display:block}
+  #drawer{position:fixed;top:0;right:0;bottom:0;width:min(420px,90vw);z-index:50;background:var(--panel-solid);
+    border-left:1px solid var(--stroke);transform:translateX(100%);transition:transform .22s ease;overflow-y:auto;
+    padding:18px 18px calc(28px + env(safe-area-inset-bottom));padding-right:max(18px,env(safe-area-inset-right))}
+  #drawer.show{transform:none}
+  #drawer h2{font-size:13px;letter-spacing:.12em;text-transform:uppercase;color:var(--dim);margin:22px 0 10px;font-weight:700}
+  #drawer h2:first-of-type{margin-top:6px}
+  .row{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:11px 0;border-bottom:1px solid rgba(255,255,255,.05)}
+  .row label{font-size:14.5px;font-weight:500}
+  .row .hint{font-size:11.5px;color:var(--dim);margin-top:3px;line-height:1.35;max-width:210px}
+  .seg{display:flex;background:#0c0e11;border:1px solid var(--stroke);border-radius:10px;overflow:hidden}
+  .seg button{padding:8px 11px;font-size:12.5px;font-weight:600;color:var(--muted)}
+  .seg button.on{background:var(--ready);color:#06210b}
+  select,input[type=text]{background:#0c0e11;border:1px solid var(--stroke);color:#fff;border-radius:10px;
+    padding:9px 11px;font-size:13.5px;font-family:inherit;outline:none;width:160px}
+  input[type=range]{accent-color:var(--ready);width:150px}
+  .toggle{width:50px;height:29px;border-radius:15px;background:#2a2f36;position:relative;transition:background .15s;flex:0 0 auto}
+  .toggle.on{background:var(--ready)}
+  .toggle::after{content:"";position:absolute;top:3px;left:3px;width:23px;height:23px;border-radius:50%;background:#fff;transition:transform .15s}
+  .toggle.on::after{transform:translateX(21px)}
+  .closeX{position:absolute;top:14px;right:16px;width:34px;height:34px;border-radius:50%;background:#1c2026;display:grid;place-items:center;font-size:20px;color:var(--muted)}
+  .dtitle{font-size:20px;font-weight:800;margin:2px 0 4px}.dsub{font-size:12.5px;color:var(--dim);margin-bottom:8px}
+
+  #latCard{background:#0c0e11;border:1px solid var(--stroke);border-radius:16px;padding:16px;margin-top:6px}
+  #latVal{font-size:30px;font-weight:800;font-variant-numeric:tabular-nums}#latVal small{font-size:14px;color:var(--muted);font-weight:600}
+  #latSlider{width:100%;margin:14px 0 6px;accent-color:var(--ready)}
+  #latMode{font-size:13px;font-weight:700;color:var(--ready);margin-bottom:10px}
+  .meterline{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin:6px 0 3px}
+  .bar{height:8px;border-radius:5px;background:#21262c;overflow:hidden}
+  .bar i{display:block;height:100%;border-radius:5px;transition:width .25s,background .25s}
+  .presets{display:flex;gap:7px;margin-top:14px}
+  .presets button{flex:1;padding:9px 4px;border-radius:10px;border:1px solid var(--stroke);background:transparent;font-size:11.5px;font-weight:600;color:var(--muted)}
+  .presets button.on{border-color:var(--ready);color:var(--ready);background:rgba(70,214,90,.08)}
+
+  #toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom));transform:translateX(-50%) translateY(20px);
+    background:#0c0e11;border:1px solid var(--stroke);color:#fff;padding:11px 18px;border-radius:12px;font-size:13.5px;z-index:80;
+    opacity:0;pointer-events:none;transition:.2s;max-width:80vw;text-align:center}
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  .hidden{display:none!important}
+  .role-view #flipBtn,.role-view #recBtn,.role-view #resChip{display:none!important}
+  #overlays.collapsed #topbar,#overlays.collapsed #vu,#overlays.collapsed #telemetry,
+  #overlays.collapsed .rbtn:not(#collapseBtn){opacity:0;pointer-events:none;transition:opacity .18s}
+
+  /* gate */
+  #gate{position:fixed;inset:0;z-index:70;background:#0a0c0f;display:grid;place-items:center;text-align:center;padding:22px;overflow-y:auto}
+  #gate .box{max-width:380px;width:100%}
+  #gate h1{font-size:23px;font-weight:800;margin:0 0 4px}
+  #gate .tag{color:var(--muted);font-size:13.5px;line-height:1.5;margin:0 0 22px}
+  .field{text-align:left;margin-bottom:16px}
+  .field>span{display:block;font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--dim);margin-bottom:7px}
+  #roomInput{width:100%;font-size:18px;font-weight:600;padding:14px 16px;text-align:center;letter-spacing:.3px}
+  #roleSeg,#transSeg{display:flex;width:100%;background:#0c0e11;border:1px solid var(--stroke);border-radius:12px;overflow:hidden}
+  #roleSeg button,#transSeg button{flex:1;padding:13px 6px;font-size:14px;font-weight:700;color:var(--muted)}
+  #roleSeg button.on{background:var(--ready);color:#06210b}
+  #transSeg button{font-size:12px;font-weight:600}#transSeg button.on{background:#1c2026;color:#fff}
+  #connectBtn{width:100%;background:var(--ready);color:#06210b;font-weight:800;font-size:17px;padding:16px;border-radius:14px;margin-top:6px}
+  #gate small{display:block;color:var(--dim);font-size:11.5px;margin-top:16px;line-height:1.5}
+  .logo{width:52px;height:52px;border-radius:14px;background:linear-gradient(135deg,#46d65a,#00b894);display:grid;place-items:center;margin:0 auto 14px;font-weight:800;color:#06210b;font-size:22px}
+  #advToggle{font-size:12.5px;color:var(--ready);font-weight:700;margin:2px 0 14px;cursor:pointer}
+  #adv{display:none}#adv.show{display:block}
+</style>
+</head>
+<body class="role-push">
+
+<div id="stage">
+  <video id="video" autoplay playsinline></video>
+  <div id="waiting"><div><div class="spin"></div><div id="waitTxt">Esperando emisor…</div></div></div>
+</div>
+
+<div id="overlays">
+  <div id="topbar">
+    <div class="pchip" id="statusGrp">
+      <button id="statusPill" class="wait">EN ESPERA</button>
+      <input id="dest" value="" spellcheck="false" readonly>
+      <div id="connDot"><i></i><span id="connN">0</span></div>
+    </div>
+    <button class="pchip chip" id="latChip"><b id="latChipVal">1.5</b><span>seg</span></button>
+    <button class="pchip chip icon" id="resChip">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.8"><rect x="2" y="6" width="15" height="12" rx="2"/><path d="M17 10l5-3v10l-5-3" stroke-linejoin="round"/></svg>
+      <span id="resChipVal">720p</span>
+    </button>
+    <button class="pchip chip icon" id="btChip">
+      <svg id="btState" class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M7 7l10 10-5 4V3l5 4L7 17"/></svg>
+    </button>
+  </div>
+
+  <div id="rail">
+    <button class="rbtn" id="flipBtn" title="Cambiar cámara">
+      <svg viewBox="0 0 24 24"><path d="M15 7h3a2 2 0 012 2v8a2 2 0 01-2 2H6a2 2 0 01-2-2V9a2 2 0 012-2h3"/><circle cx="12" cy="13" r="3"/><path d="M9 7l1.5-2.5h3L15 7" stroke-linejoin="round"/><path d="M19.5 4.5a6 6 0 00-8-1" stroke-linecap="round"/></svg>
+    </button>
+    <button class="rbtn" id="cloudBtn" title="Copiar enlace de visualización">
+      <svg viewBox="0 0 24 24"><path d="M7 18a4 4 0 01-.5-7.97A5.5 5.5 0 0117.5 9.5 4 4 0 0117 18H7z"/><path d="M9 13l3-3 3 3M12 10v6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button id="recBtn">
+      <svg class="ic" viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="M16 10l5-3v10l-5-3" stroke-linejoin="round"/></svg>
+      <span class="timer" id="recTimer">00:00:00</span>
+    </button>
+    <button class="rbtn" id="collapseBtn" title="Vista limpia">
+      <svg viewBox="0 0 24 24"><path d="M15 6l-6 6 6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    </button>
+    <button class="rbtn" id="gearBtn" title="Ajustes">
+      <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 13a1.7 1.7 0 00.3 1.9l.1.1a2 2 0 11-2.8 2.8l-.1-.1a1.7 1.7 0 00-2.9 1.2V21a2 2 0 11-4 0v-.1a1.7 1.7 0 00-2.9-1.2l-.1.1a2 2 0 11-2.8-2.8l.1-.1a1.7 1.7 0 00-1.2-2.9H3a2 2 0 110-4h.1a1.7 1.7 0 001.2-2.9l-.1-.1A2 2 0 117 4.2l.1.1a1.7 1.7 0 001.9.3H9a1.7 1.7 0 001-1.5V3a2 2 0 114 0v.1a1.7 1.7 0 001 1.5 1.7 1.7 0 001.9-.3l.1-.1a2 2 0 112.8 2.8l-.1.1a1.7 1.7 0 00-.3 1.9V9a1.7 1.7 0 001.5 1H21a2 2 0 110 4h-.1a1.7 1.7 0 00-1.5 1z"/></svg>
+    </button>
+  </div>
+
+  <div id="vu">
+    <div class="vucol" id="vuL"><span class="lbl">L</span></div>
+    <div class="vucol" id="vuR"><span class="lbl">R</span></div>
+  </div>
+
+  <div id="telemetry">
+    <div class="tval"><span class="num" id="tBitrate">0</span><span class="u">Kbps</span></div>
+    <div class="tval icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#46d65a" stroke-width="1.8"><rect x="7" y="3" width="10" height="18" rx="2"/><path d="M11 18h2"/></svg>
+      <span class="num sm" id="tRes">—</span>
+    </div>
+    <div class="tval icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#46d65a" stroke-width="1.8"><path d="M2 9a15 15 0 0120 0M5 13a10 10 0 0114 0M8.5 16.5a5 5 0 017 0" stroke-linecap="round"/><circle cx="12" cy="20" r="1.2" fill="#46d65a" stroke="none"/></svg>
+      <span class="num sm" id="tRtt">—</span><span class="u">ms</span>
+    </div>
+  </div>
+</div>
+
+<div class="pop" id="resPop">
+  <input type="range" id="resSlider" min="0" max="4" step="1" value="3">
+  <div class="reslist" id="resList"></div>
+  <div class="srccol">
+    <div class="head">iRig</div>
+    <button class="srcbtn active" id="srcMic"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0012 0M12 17v4M9 21h6" stroke-linecap="round"/></svg></button>
+    <button class="srcbtn" id="srcMon"><svg viewBox="0 0 24 24"><path d="M4 13v-1a8 8 0 0116 0v1M4 13a2 2 0 012 2v2a2 2 0 01-2 2 2 2 0 01-2-2v-2a2 2 0 012-2zM20 13a2 2 0 00-2 2v2a2 2 0 002 2 2 2 0 002-2v-2a2 2 0 00-2-2z"/></svg></button>
+  </div>
+</div>
+
+<div id="scrim"></div>
+<div id="drawer">
+  <div class="closeX" id="closeDrawer">×</div>
+  <div class="dtitle">Ajustes de enlace</div>
+  <div class="dsub">WebRTC · push/view por nombre</div>
+
+  <h2>Latencia ⇄ corrección de errores</h2>
+  <div id="latCard">
+    <div><span id="latVal">1500<small> ms</small></span></div>
+    <div id="latMode">Equilibrado · FEC + retransmisión</div>
+    <input type="range" id="latSlider" min="60" max="3000" step="20" value="1500">
+    <div class="meterline"><span>Robustez ante pérdidas</span><span id="robustPct">—</span></div>
+    <div class="bar"><i id="robustBar" style="width:50%;background:var(--ready)"></i></div>
+    <div class="meterline" style="margin-top:10px"><span>Bitrate útil de video</span><span id="usefulPct">—</span></div>
+    <div class="bar"><i id="usefulBar" style="width:80%;background:var(--bt)"></i></div>
+    <div class="presets" id="presets">
+      <button data-lat="120">Ultra baja<br>deportes</button>
+      <button data-lat="1500" class="on">Equilibrado</button>
+      <button data-lat="2600">Robusto<br>enlace débil</button>
+    </div>
+  </div>
+
+  <h2>Video</h2>
+  <div class="row"><div><label>Bitrate objetivo</label><div class="hint"><span id="brLabel">5.0</span> Mbps máximo del codificador</div></div><input type="range" id="brSlider" min="300" max="12000" step="100" value="5000"></div>
+  <div class="row"><div><label>Códec</label><div class="hint">VP9/AV1 mejor compresión; H264 compatibilidad</div></div><select id="codecSel"><option>VP8</option><option selected>VP9</option><option>H264</option><option>AV1</option></select></div>
+  <div class="row"><div><label>Prioridad de degradación</label><div class="hint">Qué sacrificar al caer el ancho de banda</div></div><select id="degSel"><option value="maintain-framerate">Mantener fluidez</option><option value="maintain-resolution">Mantener nitidez</option><option value="balanced" selected>Balanceado</option></select></div>
+  <div class="row"><div><label>Tipo de contenido</label><div class="hint">«Movimiento» prioriza fps (deportes/vivo)</div></div><select id="hintSel"><option value="motion" selected>Movimiento</option><option value="detail">Detalle</option><option value="text">Texto/gráficos</option></select></div>
+
+  <h2>Audio</h2>
+  <div class="row"><div><label>FEC en banda (Opus)</label><div class="hint">Recupera audio sin esperar retransmisión</div></div><div class="toggle on" id="aFecTog"></div></div>
+  <div class="row"><div><label>DTX (silencios)</label><div class="hint">Reduce datos cuando no hay voz</div></div><div class="toggle" id="dtxTog"></div></div>
+  <div class="row"><div><label>Bitrate de audio</label><div class="hint"><span id="aBrLabel">128</span> kbps Opus estéreo</div></div><input type="range" id="aBrSlider" min="16" max="256" step="8" value="128"></div>
+
+  <h2>Señalización y red</h2>
+  <div class="row"><div><label>Transporte</label><div class="hint">Cómo se intercambian los SDP/ICE</div></div>
+    <div class="seg" id="transSegD"><button data-t="mqtt" class="on">MQTT</button><button data-t="ws">WS propio</button><button data-t="loop">Prueba</button></div></div>
+  <div class="row"><div><label>Broker MQTT (WSS)</label><div class="hint">Público = conecta sin servidor propio</div></div><input type="text" id="brokerUrl" value="wss://broker.emqx.io:8084/mqtt"></div>
+  <div class="row"><div><label>WebSocket propio</label><div class="hint">Para tu servidor de señalización</div></div><input type="text" id="wsUrl" placeholder="wss://senial.bethel..."></div>
+  <div class="row"><div><label>STUN / TURN</label><div class="hint">TURN necesario tras NAT/CGNAT</div></div><input type="text" id="turnUrl" value="stun:stun.l.google.com:19302"></div>
+  <div class="row"><div><label>Reiniciar enlace</label><div class="hint">Vuelve a la pantalla de conexión</div></div><button id="restartBtn" style="background:#1c2026;padding:9px 16px;border-radius:10px;font-weight:700;color:#fff">Reiniciar</button></div>
+</div>
+
+<div id="toast"></div>
+
+<div id="gate">
+  <div class="box">
+    <div class="logo">B</div>
+    <h1>Enlace WebRTC · Bethel</h1>
+    <p class="tag">Emisión de baja latencia por nombre, estilo VDO.Ninja: comparte la sala, uno emite (push) y los demás reciben (view).</p>
+
+    <div class="field"><span>Nombre del enlace</span>
+      <input id="roomInput" type="text" value="bethel-sala1" spellcheck="false" autocapitalize="off" autocorrect="off"></div>
+
+    <div class="field"><span>Rol</span>
+      <div id="roleSeg"><button data-role="push" class="on">Emitir</button><button data-role="view">Recibir</button></div></div>
+
+    <div id="advToggle">Opciones avanzadas ▾</div>
+    <div id="adv">
+      <div class="field"><span>Transporte</span>
+        <div id="transSeg"><button data-t="mqtt" class="on">MQTT (sin servidor)</button><button data-t="ws">WS propio</button><button data-t="loop">Prueba local</button></div></div>
+    </div>
+
+    <button id="connectBtn">Emitir</button>
+    <small>Comparte <b id="shareHint">?view=bethel-sala1</b> para que otros vean. El móvil pide permiso de cámara/micrófono al iniciar.</small>
+  </div>
+</div>
+
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+function toast(m){const t=$('#toast');t.textContent=m;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2400);}
+const rid = ()=> Math.random().toString(36).slice(2,9);
+
+const RES=[{k:'360p',w:640,h:360},{k:'480p',w:854,h:480},{k:'540p',w:960,h:540},{k:'720p',w:1280,h:720},{k:'1080p',w:1920,h:1080}];
+const state={
+  role:'push', room:'bethel-sala1', transport:'mqtt', myId:rid(),
+  broker:'wss://broker.emqx.io:8084/mqtt', wsUrl:'', turn:'stun:stun.l.google.com:19302',
+  facing:'environment', resIdx:3, bitrate:5000, aBitrate:128, latency:1500,
+  codec:'VP9', degradation:'balanced', contentHint:'motion', vfec:true, afec:true, dtx:false, live:false
+};
+let stream=null, peers={}, primaryPc=null, sig=null;
+let audioCtx=null, vuRAF=null, statsTimer=null, recTimer=null, recStart=0, lastBytes=0, lastTs=0, prevVfec=true;
+
+/* ---------- VU ---------- */
+const LEDN=9;
+function buildVU(c){for(let i=0;i<LEDN;i++){const d=document.createElement('div');d.className='led';c.insertBefore(d,c.firstChild);}}
+buildVU($('#vuL'));buildVU($('#vuR'));
+function paintVU(c,l){const leds=c.querySelectorAll('.led');const on=Math.round(l*LEDN);
+  leds.forEach((d,i)=>{d.style.background=i<on?(i>=7?'var(--vu-r)':i>=5?'var(--vu-y)':'var(--vu-g)'):'#21262c';});}
+function setupAnalyser(s){
+  if(vuRAF)cancelAnimationFrame(vuRAF);
+  if(audioCtx){try{audioCtx.close();}catch(e){}}
+  if(!s||!s.getAudioTracks().length)return;
+  try{
+    audioCtx=new (window.AudioContext||window.webkitAudioContext)();
+    const src=audioCtx.createMediaStreamSource(s), sp=audioCtx.createChannelSplitter(2);
+    src.connect(sp);
+    const aL=audioCtx.createAnalyser(),aR=audioCtx.createAnalyser();aL.fftSize=512;aR.fftSize=512;
+    sp.connect(aL,0);sp.connect(aR,1);
+    const bL=new Uint8Array(aL.fftSize),bR=new Uint8Array(aR.fftSize);
+    const rms=(b,a)=>{a.getByteTimeDomainData(b);let s=0;for(let i=0;i<b.length;i++){const v=(b[i]-128)/128;s+=v*v;}return Math.min(1,Math.sqrt(s/b.length)*3.2);};
+    let pL=0,pR=0;
+    (function loop(){const l=rms(bL,aL),r=rms(bR,aR);pL=Math.max(l,pL*0.86);pR=Math.max(r,pR*0.86);
+      paintVU($('#vuL'),pL);paintVU($('#vuR'),pR);vuRAF=requestAnimationFrame(loop);})();
+  }catch(e){console.warn('VU',e);}
+}
+
+/* ---------- captura ---------- */
+async function getStream(){
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  const r=RES[state.resIdx];
+  stream=await navigator.mediaDevices.getUserMedia({
+    audio:{echoCancellation:false,noiseSuppression:false,autoGainControl:false,channelCount:2},
+    video:{facingMode:state.facing,width:{ideal:r.w},height:{ideal:r.h},frameRate:{ideal:30}}
+  });
+  const vt=stream.getVideoTracks()[0];
+  if('contentHint' in vt)vt.contentHint=state.contentHint;
+  $('#video').srcObject=stream;$('#video').muted=true;
+  $('#video').classList.toggle('mirror',state.facing==='user');
+  setupAnalyser(stream);
+}
+
+/* ---------- SDP munging ---------- */
+function preferCodec(sdp,kind,codec){const L=sdp.split('\r\n');const mi=L.findIndex(l=>l.startsWith('m='+kind));if(mi<0)return sdp;
+  const re=new RegExp('a=rtpmap:(\\d+) '+codec+'/','i');const pts=[];L.forEach(l=>{const m=l.match(re);if(m)pts.push(m[1]);});
+  if(!pts.length)return sdp;const p=L[mi].split(' ');L[mi]=p.slice(0,3).concat(pts,p.slice(3).filter(x=>!pts.includes(x))).join(' ');return L.join('\r\n');}
+function setOpusFmtp(sdp){const L=sdp.split('\r\n');const rm=L.find(l=>l.match(/a=rtpmap:(\d+) opus/i));if(!rm)return sdp;
+  const pt=rm.match(/a=rtpmap:(\d+)/)[1];const ex=[`maxaveragebitrate=${state.aBitrate*1000}`,`stereo=1`,`useinbandfec=${state.afec?1:0}`,`usedtx=${state.dtx?1:0}`];
+  const fi=L.findIndex(l=>l.startsWith('a=fmtp:'+pt));
+  if(fi>=0){const cur=L[fi].split(' ').slice(1).join(' ').split(';').filter(Boolean).filter(p=>!/maxaveragebitrate|stereo|useinbandfec|usedtx/.test(p));L[fi]='a=fmtp:'+pt+' '+cur.concat(ex).join(';');}
+  else{const ri=L.findIndex(l=>l.startsWith('a=rtpmap:'+pt));L.splice(ri+1,0,'a=fmtp:'+pt+' '+ex.join(';'));}
+  return L.join('\r\n');}
+function stripVideoFEC(sdp){if(state.vfec)return sdp;const L=sdp.split('\r\n');const fp=[];
+  L.forEach(l=>{const m=l.match(/a=rtpmap:(\d+) (ulpfec|red|flexfec[\w-]*)\//i);if(m)fp.push(m[1]);});if(!fp.length)return sdp;
+  const out=[];for(const l of L){if(fp.some(pt=>l.match(new RegExp('a=(rtpmap|fmtp|rtcp-fb):'+pt+'\\b'))))continue;
+    if(l.startsWith('m=video')){out.push(l.split(' ').filter(x=>!fp.includes(x)).join(' '));continue;}out.push(l);}return out.join('\r\n');}
+function munge(sdp){sdp=preferCodec(sdp,'video',state.codec);sdp=preferCodec(sdp,'audio','opus');sdp=setOpusFmtp(sdp);sdp=stripVideoFEC(sdp);return sdp;}
+
+/* ---------- parámetros ---------- */
+async function applySender(pc){const s=pc.getSenders().find(x=>x.track&&x.track.kind==='video');if(!s)return;
+  const p=s.getParameters();if(!p.encodings||!p.encodings.length)p.encodings=[{}];
+  p.encodings[0].maxBitrate=state.bitrate*1000;p.encodings[0].networkPriority='high';
+  try{p.degradationPreference=state.degradation;}catch(e){}try{await s.setParameters(p);}catch(e){}}
+function applyReceiver(pc){pc.getReceivers().forEach(r=>{if('jitterBufferTarget'in r)r.jitterBufferTarget=state.latency;if('playoutDelayHint'in r)r.playoutDelayHint=state.latency/1000;});}
+function applyAllSenders(){Object.values(peers).forEach(p=>applySender(p.pc));if(primaryPc&&state.transport==='loop')applySender(primaryPc);}
+function applyAllReceivers(){Object.values(peers).forEach(p=>applyReceiver(p.pc));if(window._pc2)applyReceiver(window._pc2);}
+
+/* ---------- ICE config ---------- */
+function iceConfig(){const u=(state.turn||'').trim();return {iceServers:u?[{urls:u}]:[{urls:'stun:stun.l.google.com:19302'}]};}
+
+/* ---------- peers (señalización real) ---------- */
+function makePeer(remoteId){
+  if(peers[remoteId])return peers[remoteId];
+  const pc=new RTCPeerConnection(iceConfig());
+  const peer={pc,pending:[]};peers[remoteId]=peer;
+  pc.onicecandidate=e=>{if(e.candidate)sig.send({type:'ice',to:remoteId,candidate:e.candidate});};
+  pc.onconnectionstatechange=()=>{updateConn();if(['failed','closed'].includes(pc.connectionState))dropPeer(remoteId);};
+  if(state.role==='push'){stream.getTracks().forEach(t=>pc.addTrack(t,stream));if(!primaryPc)primaryPc=pc;}
+  else{pc.ontrack=e=>{attachRemote(e.streams[0]);primaryPc=pc;applyReceiver(pc);};}
+  return peer;
+}
+function dropPeer(id){const p=peers[id];if(!p)return;try{p.pc.close();}catch(e){}delete peers[id];if(primaryPc===p.pc)primaryPc=Object.values(peers)[0]?Object.values(peers)[0].pc:null;updateConn();
+  if(state.role==='view'&&!Object.keys(peers).length){$('#waiting').classList.add('show');setStatus('wait','EN ESPERA');}}
+function flush(p){p.pending.forEach(c=>p.pc.addIceCandidate(c).catch(()=>{}));p.pending=[];}
+
+async function offerTo(id){if(peers[id])dropPeer(id);const p=makePeer(id);let o=await p.pc.createOffer();o={type:o.type,sdp:munge(o.sdp)};
+  await p.pc.setLocalDescription(o);sig.send({type:'offer',to:id,sdp:p.pc.localDescription.sdp});}
+async function onOffer(from,sdp){if(peers[from])dropPeer(from);const p=makePeer(from);await p.pc.setRemoteDescription({type:'offer',sdp});flush(p);
+  let a=await p.pc.createAnswer();a={type:a.type,sdp:munge(a.sdp)};await p.pc.setLocalDescription(a);
+  sig.send({type:'answer',to:from,sdp:p.pc.localDescription.sdp});applyReceiver(p.pc);}
+async function onAnswer(from,sdp){const p=peers[from];if(!p)return;await p.pc.setRemoteDescription({type:'answer',sdp});flush(p);applySender(p.pc);}
+function onIce(from,c){const p=peers[from];if(!p)return;if(p.pc.remoteDescription&&p.pc.remoteDescription.type)p.pc.addIceCandidate(c).catch(()=>{});else p.pending.push(c);}
+
+function onSignal(m){
+  if(!m||m.from===state.myId)return;if(m.to&&m.to!==state.myId)return;
+  switch(m.type){
+    case 'hello': if(state.role==='push')offerTo(m.from);break;
+    case 'push-ready': if(state.role==='view')sig.send({type:'hello'});break;
+    case 'offer': if(state.role==='view')onOffer(m.from,m.sdp);break;
+    case 'answer': if(state.role==='push')onAnswer(m.from,m.sdp);break;
+    case 'ice': onIce(m.from,m.candidate);break;
+    case 'bye': dropPeer(m.from);break;
+  }
+}
+
+/* ---------- transportes ---------- */
+function makeMqtt(){const topic='vdobethel/'+state.room;let c;
+  return {start(){c=mqtt.connect(state.broker,{clean:true,keepalive:30,connectTimeout:8000,reconnectPeriod:3000});
+    c.on('connect',()=>{c.subscribe(topic,()=>{this.onConnect&&this.onConnect();setConn('OK');});});
+    c.on('message',(t,p)=>{try{this.onmessage(JSON.parse(p.toString()));}catch(e){}});
+    c.on('error',()=>setConn('error broker'));c.on('reconnect',()=>setConn('reconectando…'));},
+    send(m){m.from=state.myId;try{c&&c.connected&&c.publish(topic,JSON.stringify(m));}catch(e){}},
+    stop(){try{this.send({type:'bye'});c&&c.end(true);}catch(e){}}};}
+function makeWs(){let ws;
+  return {start(){ws=new WebSocket(state.wsUrl);
+    ws.onopen=()=>{this.send({type:'join'});this.onConnect&&this.onConnect();setConn('OK');};
+    ws.onmessage=e=>{try{this.onmessage(JSON.parse(e.data));}catch(err){}};
+    ws.onclose=()=>setConn('cerrado');ws.onerror=()=>setConn('error señalización');},
+    send(m){m.from=state.myId;m.room=state.room;try{ws&&ws.readyState===1&&ws.send(JSON.stringify(m));}catch(e){}},
+    stop(){try{this.send({type:'bye'});ws&&ws.close();}catch(e){}}};}
+
+function startSignaling(){
+  sig=state.transport==='ws'?makeWs():makeMqtt();
+  sig.onmessage=onSignal;
+  sig.onConnect=()=>{ if(state.role==='push'){setStatus('ready','LISTO');sig.send({type:'push-ready'});} else {sig.send({type:'hello'});} };
+  sig.start();
+}
+
+/* ---------- loopback (prueba local) ---------- */
+async function connectLoopback(){
+  closeAll();const cfg=iceConfig();
+  const pc1=new RTCPeerConnection(cfg),pc2=new RTCPeerConnection(cfg);
+  window._pc1=pc1;window._pc2=pc2;primaryPc=pc1;
+  pc1.onicecandidate=e=>e.candidate&&pc2.addIceCandidate(e.candidate).catch(()=>{});
+  pc2.onicecandidate=e=>e.candidate&&pc1.addIceCandidate(e.candidate).catch(()=>{});
+  pc2.ontrack=e=>{applyReceiver(pc2);};
+  stream.getTracks().forEach(t=>pc1.addTrack(t,stream));
+  let o=await pc1.createOffer();o={type:o.type,sdp:munge(o.sdp)};await pc1.setLocalDescription(o);await pc2.setRemoteDescription(o);
+  let a=await pc2.createAnswer();a={type:a.type,sdp:munge(a.sdp)};await pc2.setLocalDescription(a);await pc1.setRemoteDescription(a);
+  await applySender(pc1);applyReceiver(pc2);setStatus('ready','PRUEBA');updateConn();
+}
+
+function closeAll(){Object.keys(peers).forEach(id=>{try{peers[id].pc.close();}catch(e){}});peers={};
+  if(window._pc1){try{_pc1.close();}catch(e){}}if(window._pc2){try{_pc2.close();}catch(e){}}window._pc1=window._pc2=null;primaryPc=null;}
+
+/* ---------- reconexión / renegociación ---------- */
+async function reEstablish(){
+  if(state.transport==='loop'){await connectLoopback();return;}
+  closeAll();updateConn();
+  if(state.role==='push'){setStatus('ready','LISTO');sig&&sig.send({type:'push-ready'});}
+  else{$('#waiting').classList.add('show');setStatus('wait','EN ESPERA');sig&&sig.send({type:'hello'});}
+}
+
+/* ---------- vista remota ---------- */
+function attachRemote(s){$('#waiting').classList.remove('show');$('#video').srcObject=s;$('#video').muted=false;
+  $('#video').classList.remove('mirror');$('#video').play().catch(()=>{});setStatus('live','EN VIVO');setupAnalyser(s);}
+
+/* ---------- estado UI ---------- */
+function setStatus(cls,txt){const p=$('#statusPill');p.className=cls;p.textContent=txt;}
+function setConn(t){$('#dest').value=state.room;}
+function updateConn(){const n=Object.keys(peers).length+(state.transport==='loop'&&primaryPc?1:0);
+  const d=$('#connDot');d.classList.toggle('show',n>0);$('#connN').textContent=n;
+  if(state.role==='push'&&n>0)setStatus('live','EN VIVO');}
+
+/* ---------- stats ---------- */
+function startStats(){if(statsTimer)clearInterval(statsTimer);lastBytes=0;lastTs=0;
+  statsTimer=setInterval(async()=>{const pc=primaryPc;if(!pc)return;let kbps=0,w=0,h=0,rtt=null;
+    const rep=await pc.getStats();
+    rep.forEach(r=>{
+      if(state.role==='view'){if(r.type==='inbound-rtp'&&r.kind==='video'){if(lastTs){const db=r.bytesReceived-lastBytes,dt=(r.timestamp-lastTs)/1000;if(dt>0)kbps=db*8/1000/dt;}lastBytes=r.bytesReceived;lastTs=r.timestamp;w=r.frameWidth||0;h=r.frameHeight||0;}}
+      else{if(r.type==='outbound-rtp'&&r.kind==='video'){if(lastTs){const db=r.bytesSent-lastBytes,dt=(r.timestamp-lastTs)/1000;if(dt>0)kbps=db*8/1000/dt;}lastBytes=r.bytesSent;lastTs=r.timestamp;w=r.frameWidth||0;h=r.frameHeight||0;}
+        if(r.type==='remote-inbound-rtp'&&r.kind==='video'&&r.roundTripTime!=null)rtt=r.roundTripTime*1000;}
+      if(r.type==='candidate-pair'&&r.state==='succeeded'&&r.currentRoundTripTime!=null&&rtt==null)rtt=r.currentRoundTripTime*1000;
+    });
+    $('#tBitrate').textContent=kbps?Math.round(kbps).toLocaleString('es'):'0';
+    $('#tRes').textContent=w?`${w}×${h}`:'—';
+    $('#tRtt').textContent=rtt!=null?Math.round(rtt):'—';
+  },1000);}
+
+/* ---------- modelo latencia ⇄ FEC ⇄ bitrate ---------- */
+function applyLatencyModel(){const ms=state.latency,fecZone=ms<800;state.vfec=fecZone;
+  const fo=fecZone?Math.max(0,(800-ms)/800)*0.30:0;const useful=Math.round((1-fo)*100);
+  const nack=Math.min(1,ms/2600);const robust=Math.round(Math.max(fo*100/0.30*0.6,nack*100));
+  let mode;if(ms<300)mode='Ultra baja · FEC agresivo (sin retransmisión)';else if(ms<800)mode='Baja · FEC + algo de retransmisión';
+  else if(ms<1800)mode='Equilibrado · FEC ligero + retransmisión';else mode='Robusto · solo retransmisión (NACK/RTX)';
+  $('#latMode').textContent=mode;$('#robustBar').style.width=robust+'%';
+  $('#robustBar').style.background=robust>66?'var(--ready)':robust>33?'var(--vu-y)':'var(--vu-r)';
+  $('#usefulBar').style.width=useful+'%';$('#robustPct').textContent=robust+'%';
+  $('#usefulPct').textContent=useful+'% ('+(state.bitrate*useful/100/1000).toFixed(1)+' Mbps)';
+  $('#latVal').innerHTML=ms+'<small> ms</small>';$('#latChipVal').textContent=(ms/1000).toFixed(1);
+  document.querySelectorAll('#presets button').forEach(b=>b.classList.toggle('on',Math.abs(+b.dataset.lat-ms)<60));
+  applyAllReceivers();}
+
+/* ---------- resolución ---------- */
+function buildResList(){const el=$('#resList');el.innerHTML='';
+  [...RES].reverse().forEach(r=>{const idx=RES.indexOf(r);const b=document.createElement('button');
+    b.className='resitem'+(idx===state.resIdx?' active':'');
+    b.innerHTML=`<svg viewBox="0 0 24 18"><rect x="1" y="2" width="16" height="13" rx="2"/><path d="M17 6l6-3v12l-6-3"/></svg><b>${r.k}</b>`;
+    b.onclick=async()=>{state.resIdx=idx;$('#resChipVal').textContent=r.k;$('#resSlider').value=idx;buildResList();
+      await getStream();await reEstablish();toast('Resolución: '+r.k);};el.appendChild(b);});}
+
+/* ===================== ARRANQUE ===================== */
+function shareLink(){const u=new URL(location.href);u.search='';u.searchParams.set('view',state.room);return u.toString();}
+function applyRoleUI(){document.body.classList.toggle('role-view',state.role==='view');document.body.classList.toggle('role-push',state.role==='push');}
+
+async function connect(){
+  state.room=($('#roomInput').value.trim()||'bethel-sala1').replace(/[^\w\-]/g,'');
+  state.broker=$('#brokerUrl').value.trim();state.wsUrl=$('#wsUrl').value.trim();state.turn=$('#turnUrl').value.trim();
+  applyRoleUI();$('#dest').value=state.room;
+  try{
+    if(state.role==='push'||state.transport==='loop'){await getStream();}
+    if(state.transport==='loop'){state.role='push';applyRoleUI();await connectLoopback();}
+    else{ if(state.role==='view'){$('#waiting').classList.add('show');setStatus('wait','EN ESPERA');} startSignaling(); }
+    $('#gate').classList.add('hidden');buildResList();applyLatencyModel();startStats();
+    const el=document.documentElement;setTimeout(()=>{if(el.requestFullscreen)el.requestFullscreen().catch(()=>{});},300);
+    toast(state.role==='push'?'Emitiendo · sala '+state.room:'Conectado · esperando video');
+  }catch(e){console.error(e);toast('No se pudo acceder a cámara/micrófono');}
+}
+
+/* ---------- controles ---------- */
+$('#connectBtn').onclick=connect;
+document.querySelectorAll('#roleSeg button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#roleSeg button').forEach(x=>x.classList.remove('on'));b.classList.add('on');
+  state.role=b.dataset.role;$('#connectBtn').textContent=state.role==='push'?'Emitir':'Recibir';});
+document.querySelectorAll('#transSeg button').forEach(b=>b.onclick=()=>{
+  document.querySelectorAll('#transSeg button').forEach(x=>x.classList.remove('on'));b.classList.add('on');state.transport=b.dataset.t;});
+$('#advToggle').onclick=()=>{$('#adv').classList.toggle('show');$('#advToggle').textContent=$('#adv').classList.contains('show')?'Opciones avanzadas ▴':'Opciones avanzadas ▾';};
+$('#roomInput').oninput=()=>{$('#shareHint').textContent='?view='+$('#roomInput').value.trim();};
+
+$('#statusPill').onclick=()=>{
+  if(state.role==='view'){const v=$('#video');v.muted=!v.muted;toast(v.muted?'Audio silenciado':'Audio activo');return;}
+  state.live=!state.live;const p=$('#statusPill'),r=$('#recBtn');
+  if(state.live){p.className='live';p.textContent='AL AIRE';r.classList.add('live');recStart=Date.now();recTimer=setInterval(updTimer,1000);updTimer();toast('AL AIRE');}
+  else{p.className='ready';p.textContent='LISTO';r.classList.remove('live');clearInterval(recTimer);}};
+$('#recBtn').onclick=()=>$('#statusPill').click();
+function updTimer(){const s=Math.floor((Date.now()-recStart)/1000);const h=String(Math.floor(s/3600)).padStart(2,'0'),m=String(Math.floor(s/60)%60).padStart(2,'0'),x=String(s%60).padStart(2,'0');$('#recTimer').textContent=`${h}:${m}:${x}`;}
+
+$('#flipBtn').onclick=async()=>{state.facing=state.facing==='user'?'environment':'user';await getStream();await reEstablish();};
+$('#collapseBtn').onclick=()=>$('#overlays').classList.toggle('collapsed');
+$('#cloudBtn').onclick=async()=>{const link=shareLink();try{await navigator.clipboard.writeText(link);toast('Enlace de visualización copiado');}catch(e){toast(link);}};
+$('#stage').addEventListener('dblclick',()=>$('#overlays').classList.toggle('collapsed'));
+
+$('#resChip').onclick=()=>$('#resPop').classList.toggle('show');
+$('#resSlider').oninput=e=>{state.resIdx=+e.target.value;$('#resChipVal').textContent=RES[state.resIdx].k;buildResList();};
+$('#resSlider').onchange=async()=>{await getStream();await reEstablish();toast('Resolución: '+RES[state.resIdx].k);};
+$('#srcMic').onclick=()=>{$('#srcMic').classList.add('active');$('#srcMon').classList.remove('active');toast('Fuente: micrófono');};
+$('#srcMon').onclick=()=>{$('#srcMon').classList.add('active');$('#srcMic').classList.remove('active');toast('Monitoreo');};
+document.addEventListener('click',e=>{if(!$('#resPop').contains(e.target)&&!$('#resChip').contains(e.target))$('#resPop').classList.remove('show');});
+$('#btChip').onclick=()=>{$('#btState').classList.toggle('on');toast($('#btState').classList.contains('on')?'Audio Bluetooth activo':'Audio Bluetooth apagado');};
+
+function openDrawer(){$('#drawer').classList.add('show');$('#scrim').classList.add('show');}
+function closeDrawer(){$('#drawer').classList.remove('show');$('#scrim').classList.remove('show');}
+$('#gearBtn').onclick=openDrawer;$('#latChip').onclick=openDrawer;$('#closeDrawer').onclick=closeDrawer;$('#scrim').onclick=closeDrawer;
+$('#restartBtn').onclick=()=>{closeAll();sig&&sig.stop();if(statsTimer)clearInterval(statsTimer);closeDrawer();location.search='';};
+
+$('#latSlider').oninput=e=>{state.latency=+e.target.value;applyLatencyModel();};
+$('#latSlider').onchange=()=>{if(prevVfec!==state.vfec){prevVfec=state.vfec;if(primaryPc||Object.keys(peers).length)reEstablish();}else applyAllReceivers();};
+document.querySelectorAll('#presets button').forEach(b=>b.onclick=()=>{state.latency=+b.dataset.lat;$('#latSlider').value=state.latency;applyLatencyModel();if(prevVfec!==state.vfec){prevVfec=state.vfec;reEstablish();}});
+
+$('#brSlider').oninput=e=>{state.bitrate=+e.target.value;$('#brLabel').textContent=(state.bitrate/1000).toFixed(1);applyLatencyModel();};
+$('#brSlider').onchange=()=>applyAllSenders();
+$('#aBrSlider').oninput=e=>{state.aBitrate=+e.target.value;$('#aBrLabel').textContent=state.aBitrate;};
+$('#aBrSlider').onchange=()=>reEstablish();
+$('#codecSel').onchange=e=>{state.codec=e.target.value;reEstablish();toast('Códec: '+state.codec);};
+$('#degSel').onchange=e=>{state.degradation=e.target.value;applyAllSenders();};
+$('#hintSel').onchange=e=>{state.contentHint=e.target.value;const vt=stream&&stream.getVideoTracks()[0];if(vt&&'contentHint'in vt)vt.contentHint=state.contentHint;};
+function bindTog(id,key,after){$(id).onclick=()=>{state[key]=!state[key];$(id).classList.toggle('on',state[key]);after&&after();};}
+bindTog('#aFecTog','afec',()=>reEstablish());bindTog('#dtxTog','dtx',()=>reEstablish());
+document.querySelectorAll('#transSegD button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#transSegD button').forEach(x=>x.classList.remove('on'));b.classList.add('on');state.transport=b.dataset.t;toast('Transporte: '+state.transport+' (reinicia para aplicar)');});
+
+window.addEventListener('beforeunload',()=>{try{sig&&sig.stop();}catch(e){}});
+
+/* ---------- parámetros de URL (estilo VDO.Ninja) ---------- */
+(function initFromURL(){const q=new URLSearchParams(location.search);
+  const push=q.get('push'),view=q.get('view'),server=q.get('server'),ws=q.get('ws');
+  if(server){state.broker=server;$('#brokerUrl').value=server;}
+  if(ws){state.transport='ws';state.wsUrl=ws;$('#wsUrl').value=ws;}
+  const room=push||view;if(room){$('#roomInput').value=room;$('#shareHint').textContent='?view='+room;
+    state.role=push?'push':'view';
+    document.querySelectorAll('#roleSeg button').forEach(x=>x.classList.toggle('on',x.dataset.role===state.role));
+    $('#connectBtn').textContent=state.role==='push'?'Emitir':'Recibir';
+    $('#gate').querySelector('.tag').textContent=state.role==='push'?'Listo para emitir en la sala «'+room+'». Toca Emitir para iniciar cámara.':'Listo para ver la sala «'+room+'». Toca Recibir para conectar.';}
+})();
+</script>
+</body>
+</html>
