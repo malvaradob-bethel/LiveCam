@@ -127,6 +127,34 @@
     opacity:0;pointer-events:none;transition:.2s;max-width:80vw;text-align:center}
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
 
+  #diag{position:absolute;left:50%;top:max(66px,calc(env(safe-area-inset-top) + 52px));transform:translateX(-50%);z-index:22;
+    background:rgba(8,10,13,.85);border:1px solid var(--stroke);color:#cdd2da;font-size:12.5px;font-weight:500;
+    padding:7px 14px;border-radius:20px;max-width:82vw;text-align:center;display:none}
+  #diag.show{display:block}
+  #diag.warn{color:#ffd21e;border-color:rgba(255,210,30,.45)}
+  #diag.bad{color:#ff6b6b;border-color:rgba(255,107,107,.5)}
+  #banner{position:absolute;left:50%;top:40%;transform:translate(-50%,-50%) scale(.9);z-index:60;
+    font-size:28px;font-weight:800;letter-spacing:.07em;padding:15px 32px;border-radius:16px;color:#06210b;
+    opacity:0;pointer-events:none;transition:.25s}
+  #banner.show{opacity:1;transform:translate(-50%,-50%) scale(1)}
+  #roleSeg.locked{opacity:.55;pointer-events:none}
+  #roleLock{font-size:11.5px;color:var(--ready);font-weight:600;margin-top:7px;display:none}
+  #roleLock.show{display:block}
+
+  #protoSeg{display:flex;gap:8px;margin:6px 0 10px}
+  #protoSeg button{flex:1;padding:13px 4px;border-radius:12px;border:1px solid var(--stroke);background:#0c0e11;
+    font-size:13.5px;font-weight:800;color:var(--muted);letter-spacing:.02em}
+  #protoSeg button.on{border-color:var(--ready);color:#06210b;background:var(--ready)}
+  #protoDesc{font-size:12.5px;color:var(--muted);line-height:1.45;background:#0c0e11;border:1px solid var(--stroke);
+    border-radius:12px;padding:11px 13px;margin-bottom:8px}
+  #protoDesc b{color:#fff}
+  #srtPanel{display:none;margin-top:8px;background:#120f0a;border:1px solid rgba(255,210,30,.3);border-radius:12px;padding:12px}
+  #srtPanel.show{display:block}
+  #srtPanel .warn{color:#ffd21e;font-size:12px;font-weight:600;margin-bottom:10px;line-height:1.4}
+  #srtPanel .srow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 0}
+  #srtPanel .srow label{font-size:13px}
+  #srtPanel input{width:160px}
+
   .hidden{display:none!important}
   .role-view #flipBtn,.role-view #recBtn,.role-view #resChip{display:none!important}
   #overlays.collapsed #topbar,#overlays.collapsed #vu,#overlays.collapsed #telemetry,
@@ -156,6 +184,7 @@
 <div id="stage">
   <video id="video" autoplay playsinline></video>
   <div id="waiting"><div><div class="spin"></div><div id="waitTxt">Esperando emisor…</div></div></div>
+  <div id="banner"></div>
 </div>
 
 <div id="overlays">
@@ -173,7 +202,10 @@
     <button class="pchip chip icon" id="btChip">
       <svg id="btState" class="on" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M7 7l10 10-5 4V3l5 4L7 17"/></svg>
     </button>
+    <button class="pchip chip" id="protoChip"><b id="protoChipVal">WebRTC</b><span>red</span></button>
   </div>
+
+  <div id="diag"></div>
 
   <div id="rail">
     <button class="rbtn" id="flipBtn" title="Cambiar cámara">
@@ -255,12 +287,31 @@
   <div class="row"><div><label>DTX (silencios)</label><div class="hint">Reduce datos cuando no hay voz</div></div><div class="toggle" id="dtxTog"></div></div>
   <div class="row"><div><label>Bitrate de audio</label><div class="hint"><span id="aBrLabel">128</span> kbps Opus estéreo</div></div><input type="range" id="aBrSlider" min="16" max="256" step="8" value="128"></div>
 
+  <h2>Protocolo de conexión (medios)</h2>
+  <div id="protoSeg">
+    <button data-p="udp">UDP</button>
+    <button data-p="tcp">TCP</button>
+    <button data-p="srt">SRT</button>
+    <button data-p="webrtc" class="on">WebRTC</button>
+  </div>
+  <div id="protoDesc"></div>
+  <div id="srtPanel">
+    <div class="warn">⚠ El navegador no envía SRT directamente. Este modo requiere una pasarela WebRTC→SRT (p. ej. MediaMTX) en un servidor; estos datos se usan en la salida del gateway.</div>
+    <div class="srow"><label>URL SRT</label><input type="text" id="srtUrl" placeholder="srt://host:9000"></div>
+    <div class="srow"><label>Latencia SRT (ms)</label><input type="text" id="srtLat" value="120"></div>
+    <div class="srow"><label>Passphrase</label><input type="text" id="srtPass" placeholder="opcional"></div>
+  </div>
+
   <h2>Señalización y red</h2>
   <div class="row"><div><label>Transporte</label><div class="hint">Cómo se intercambian los SDP/ICE</div></div>
     <div class="seg" id="transSegD"><button data-t="mqtt" class="on">MQTT</button><button data-t="ws">WS propio</button><button data-t="loop">Prueba</button></div></div>
   <div class="row"><div><label>Broker MQTT (WSS)</label><div class="hint">Público = conecta sin servidor propio</div></div><input type="text" id="brokerUrl" value="wss://broker.emqx.io:8084/mqtt"></div>
   <div class="row"><div><label>WebSocket propio</label><div class="hint">Para tu servidor de señalización</div></div><input type="text" id="wsUrl" placeholder="wss://senial.bethel..."></div>
-  <div class="row"><div><label>STUN / TURN</label><div class="hint">TURN necesario tras NAT/CGNAT</div></div><input type="text" id="turnUrl" value="stun:stun.l.google.com:19302"></div>
+  <div class="row"><div><label>Servidor de credenciales TURN</label><div class="hint">La app pide usuario/clave temporales aquí (recomendado)</div></div><input type="text" id="credUrl" placeholder="https://senial.bethel.../turn"></div>
+  <div class="row"><div><label>Forzar relay (TURN)</label><div class="hint">Garantiza conexión ignorando ruta directa</div></div><div class="toggle" id="relayTog"></div></div>
+  <div class="row"><div><label>STUN / TURN manual</label><div class="hint">Alternativa fija si no usas el endpoint de arriba</div></div><input type="text" id="turnUrl" value="stun:stun.l.google.com:19302"></div>
+  <div class="row"><div><label>TURN usuario</label><div class="hint">Solo si tu TURN pide credenciales</div></div><input type="text" id="turnUser" placeholder="usuario"></div>
+  <div class="row"><div><label>TURN credencial</label><div class="hint">Contraseña/secreto del TURN</div></div><input type="text" id="turnCred" placeholder="credencial"></div>
   <div class="row"><div><label>Reiniciar enlace</label><div class="hint">Vuelve a la pantalla de conexión</div></div><button id="restartBtn" style="background:#1c2026;padding:9px 16px;border-radius:10px;font-weight:700;color:#fff">Reiniciar</button></div>
 </div>
 
@@ -276,7 +327,8 @@
       <input id="roomInput" type="text" value="bethel-sala1" spellcheck="false" autocapitalize="off" autocorrect="off"></div>
 
     <div class="field"><span>Rol</span>
-      <div id="roleSeg"><button data-role="push" class="on">Emitir</button><button data-role="view">Recibir</button></div></div>
+      <div id="roleSeg"><button data-role="push" class="on">Emitir</button><button data-role="view">Recibir</button></div>
+      <div id="roleLock"></div></div>
 
     <div id="advToggle">Opciones avanzadas ▾</div>
     <div id="adv">
@@ -298,8 +350,10 @@ const rid = ()=> Math.random().toString(36).slice(2,9);
 const RES=[{k:'360p',w:640,h:360},{k:'480p',w:854,h:480},{k:'540p',w:960,h:540},{k:'720p',w:1280,h:720},{k:'1080p',w:1920,h:1080}];
 const state={
   role:'push', room:'bethel-sala1', transport:'mqtt', myId:rid(),
-  broker:'wss://broker.emqx.io:8084/mqtt', wsUrl:'', turn:'stun:stun.l.google.com:19302',
+  broker:'wss://broker.emqx.io:8084/mqtt', wsUrl:'', turn:'stun:stun.l.google.com:19302', turnUser:'', turnCred:'',
   facing:'environment', resIdx:3, bitrate:5000, aBitrate:128, latency:1500,
+  protocol:'webrtc', srtUrl:'', srtLatency:120, srtPass:'',
+  credUrl:'', iceServers:null, forceRelay:false,
   codec:'VP9', degradation:'balanced', contentHint:'motion', vfec:true, afec:true, dtx:false, live:false
 };
 let stream=null, peers={}, primaryPc=null, sig=null;
@@ -369,15 +423,51 @@ function applyReceiver(pc){pc.getReceivers().forEach(r=>{if('jitterBufferTarget'
 function applyAllSenders(){Object.values(peers).forEach(p=>applySender(p.pc));if(primaryPc&&state.transport==='loop')applySender(primaryPc);}
 function applyAllReceivers(){Object.values(peers).forEach(p=>applyReceiver(p.pc));if(window._pc2)applyReceiver(window._pc2);}
 
-/* ---------- ICE config ---------- */
-function iceConfig(){const u=(state.turn||'').trim();return {iceServers:u?[{urls:u}]:[{urls:'stun:stun.l.google.com:19302'}]};}
+/* ---------- diagnóstico visible ---------- */
+function log(t,cls){const d=$('#diag');d.textContent=t;d.className='show'+(cls?' '+cls:'');}
+function banner(t,bg){const b=$('#banner');b.textContent=t;b.style.background=bg;b.classList.add('show');setTimeout(()=>b.classList.remove('show'),2600);}
+
+/* ---------- ICE config (protocolo de medios: UDP/TCP/WebRTC/SRT) ---------- */
+function turnUrlWith(transport){let u=(state.turn||'').trim();if(!u||!u.startsWith('turn'))return null;
+  u=u.replace(/\?transport=(udp|tcp)/i,'');if(u.startsWith('turns'))return u;return u+'?transport='+transport;}
+async function fetchIce(){
+  let url=(state.credUrl||'').trim();
+  if(!url && state.wsUrl){ try{const w=new URL(state.wsUrl);url=(w.protocol==='wss:'?'https:':'http:')+'//'+w.host+'/turn';}catch(e){} }
+  if(!url){ state.iceServers=null; return; }
+  try{
+    const r=await fetch(url,{cache:'no-store'});const j=await r.json();
+    state.iceServers=Array.isArray(j)?j:(j.iceServers||null);
+    if(state.iceServers)log('Credenciales TURN obtenidas ✓');
+  }catch(e){ state.iceServers=null; log('No se obtuvieron credenciales TURN (revisa el endpoint)','warn'); }
+}
+function iceConfig(){
+  const servers=[{urls:['stun:stun.l.google.com:19302','stun:stun.cloudflare.com:3478']}];
+  if(Array.isArray(state.iceServers)&&state.iceServers.length){ servers.push(...state.iceServers); }
+  else { const t=turnUrlWith(state.protocol==='tcp'?'tcp':'udp');
+    if(t){const s={urls:t};if(state.turnUser)s.username=state.turnUser;if(state.turnCred)s.credential=state.turnCred;servers.push(s);} }
+  const cfg={iceServers:servers,iceCandidatePoolSize:2};
+  if(state.protocol==='tcp'||state.forceRelay){cfg.iceTransportPolicy='relay';}
+  return cfg;
+}
 
 /* ---------- peers (señalización real) ---------- */
+let retryGuard=false;
+async function autoRecover(){
+  if(retryGuard)return; retryGuard=true; setTimeout(()=>retryGuard=false,9000);
+  if(!(Array.isArray(state.iceServers)&&state.iceServers.length) && !(state.turn||'').startsWith('turn')){
+    log('Sin TURN no hay relay posible. Configura el endpoint TURN (Ajustes)','bad');return;}
+  state.forceRelay=true; await fetchIce(); reEstablish();
+}
 function makePeer(remoteId){
   if(peers[remoteId])return peers[remoteId];
   const pc=new RTCPeerConnection(iceConfig());
   const peer={pc,pending:[]};peers[remoteId]=peer;
   pc.onicecandidate=e=>{if(e.candidate)sig.send({type:'ice',to:remoteId,candidate:e.candidate});};
+  pc.oniceconnectionstatechange=()=>{const s=pc.iceConnectionState;
+    if(s==='checking')log('Conectando P2P…');
+    else if(s==='connected'||s==='completed')log('Conectado ✓ (P2P)');
+    else if(s==='failed'){log('Ruta directa falló · reintentando por relay…','warn');autoRecover();}
+    else if(s==='disconnected')log('P2P interrumpido, reintentando…','warn');};
   pc.onconnectionstatechange=()=>{updateConn();if(['failed','closed'].includes(pc.connectionState))dropPeer(remoteId);};
   if(state.role==='push'){stream.getTracks().forEach(t=>pc.addTrack(t,stream));if(!primaryPc)primaryPc=pc;}
   else{pc.ontrack=e=>{attachRemote(e.streams[0]);primaryPc=pc;applyReceiver(pc);};}
@@ -398,10 +488,10 @@ function onIce(from,c){const p=peers[from];if(!p)return;if(p.pc.remoteDescriptio
 function onSignal(m){
   if(!m||m.from===state.myId)return;if(m.to&&m.to!==state.myId)return;
   switch(m.type){
-    case 'hello': if(state.role==='push')offerTo(m.from);break;
-    case 'push-ready': if(state.role==='view')sig.send({type:'hello'});break;
-    case 'offer': if(state.role==='view')onOffer(m.from,m.sdp);break;
-    case 'answer': if(state.role==='push')onAnswer(m.from,m.sdp);break;
+    case 'hello': if(state.role==='push'){log('Espectador detectado · enviando oferta');offerTo(m.from);}break;
+    case 'push-ready': if(state.role==='view'){log('Emisor encontrado · solicitando video');sig.send({type:'hello'});}break;
+    case 'offer': if(state.role==='view'){log('Oferta recibida · respondiendo');onOffer(m.from,m.sdp);}break;
+    case 'answer': if(state.role==='push'){log('Respuesta recibida · negociando');onAnswer(m.from,m.sdp);}break;
     case 'ice': onIce(m.from,m.candidate);break;
     case 'bye': dropPeer(m.from);break;
   }
@@ -410,16 +500,17 @@ function onSignal(m){
 /* ---------- transportes ---------- */
 function makeMqtt(){const topic='vdobethel/'+state.room;let c;
   return {start(){c=mqtt.connect(state.broker,{clean:true,keepalive:30,connectTimeout:8000,reconnectPeriod:3000});
-    c.on('connect',()=>{c.subscribe(topic,()=>{this.onConnect&&this.onConnect();setConn('OK');});});
+    c.on('connect',()=>{c.subscribe(topic,()=>{this.onConnect&&this.onConnect();log('Señalización conectada · sala '+state.room);});});
     c.on('message',(t,p)=>{try{this.onmessage(JSON.parse(p.toString()));}catch(e){}});
-    c.on('error',()=>setConn('error broker'));c.on('reconnect',()=>setConn('reconectando…'));},
+    c.on('error',()=>log('Error de broker MQTT — revisa red/puerto 8084','bad'));c.on('reconnect',()=>log('Reconectando señalización…','warn'));
+    c.on('close',()=>log('Señalización cerrada','warn'));},
     send(m){m.from=state.myId;try{c&&c.connected&&c.publish(topic,JSON.stringify(m));}catch(e){}},
     stop(){try{this.send({type:'bye'});c&&c.end(true);}catch(e){}}};}
 function makeWs(){let ws;
   return {start(){ws=new WebSocket(state.wsUrl);
-    ws.onopen=()=>{this.send({type:'join'});this.onConnect&&this.onConnect();setConn('OK');};
+    ws.onopen=()=>{this.send({type:'join'});this.onConnect&&this.onConnect();log('Señalización (WS) conectada · sala '+state.room);};
     ws.onmessage=e=>{try{this.onmessage(JSON.parse(e.data));}catch(err){}};
-    ws.onclose=()=>setConn('cerrado');ws.onerror=()=>setConn('error señalización');},
+    ws.onclose=()=>log('Señalización WS cerrada','warn');ws.onerror=()=>log('Error de WebSocket — revisa la URL/servidor','bad');},
     send(m){m.from=state.myId;m.room=state.room;try{ws&&ws.readyState===1&&ws.send(JSON.stringify(m));}catch(e){}},
     stop(){try{this.send({type:'bye'});ws&&ws.close();}catch(e){}}};}
 
@@ -450,6 +541,7 @@ function closeAll(){Object.keys(peers).forEach(id=>{try{peers[id].pc.close();}ca
 /* ---------- reconexión / renegociación ---------- */
 async function reEstablish(){
   if(state.transport==='loop'){await connectLoopback();return;}
+  await fetchIce();
   closeAll();updateConn();
   if(state.role==='push'){setStatus('ready','LISTO');sig&&sig.send({type:'push-ready'});}
   else{$('#waiting').classList.add('show');setStatus('wait','EN ESPERA');sig&&sig.send({type:'hello'});}
@@ -457,7 +549,7 @@ async function reEstablish(){
 
 /* ---------- vista remota ---------- */
 function attachRemote(s){$('#waiting').classList.remove('show');$('#video').srcObject=s;$('#video').muted=false;
-  $('#video').classList.remove('mirror');$('#video').play().catch(()=>{});setStatus('live','EN VIVO');setupAnalyser(s);}
+  $('#video').classList.remove('mirror');$('#video').play().catch(()=>{});setStatus('live','EN VIVO');setupAnalyser(s);log('Recibiendo video ✓');}
 
 /* ---------- estado UI ---------- */
 function setStatus(cls,txt){const p=$('#statusPill');p.className=cls;p.textContent=txt;}
@@ -468,14 +560,17 @@ function updateConn(){const n=Object.keys(peers).length+(state.transport==='loop
 
 /* ---------- stats ---------- */
 function startStats(){if(statsTimer)clearInterval(statsTimer);lastBytes=0;lastTs=0;
-  statsTimer=setInterval(async()=>{const pc=primaryPc;if(!pc)return;let kbps=0,w=0,h=0,rtt=null;
+  statsTimer=setInterval(async()=>{const pc=primaryPc;if(!pc)return;let kbps=0,w=0,h=0,rtt=null,sel=null;
     const rep=await pc.getStats();
     rep.forEach(r=>{
       if(state.role==='view'){if(r.type==='inbound-rtp'&&r.kind==='video'){if(lastTs){const db=r.bytesReceived-lastBytes,dt=(r.timestamp-lastTs)/1000;if(dt>0)kbps=db*8/1000/dt;}lastBytes=r.bytesReceived;lastTs=r.timestamp;w=r.frameWidth||0;h=r.frameHeight||0;}}
       else{if(r.type==='outbound-rtp'&&r.kind==='video'){if(lastTs){const db=r.bytesSent-lastBytes,dt=(r.timestamp-lastTs)/1000;if(dt>0)kbps=db*8/1000/dt;}lastBytes=r.bytesSent;lastTs=r.timestamp;w=r.frameWidth||0;h=r.frameHeight||0;}
         if(r.type==='remote-inbound-rtp'&&r.kind==='video'&&r.roundTripTime!=null)rtt=r.roundTripTime*1000;}
-      if(r.type==='candidate-pair'&&r.state==='succeeded'&&r.currentRoundTripTime!=null&&rtt==null)rtt=r.currentRoundTripTime*1000;
+      if(r.type==='candidate-pair'&&r.state==='succeeded'&&(r.nominated||r.selected)){sel=r;if(r.currentRoundTripTime!=null&&rtt==null)rtt=r.currentRoundTripTime*1000;}
     });
+    if(sel){const lc=rep.get(sel.localCandidateId);if(lc){const map={host:'LAN',srflx:'DIRECTO',prflx:'DIRECTO',relay:'RELAY'};
+      const via=(map[lc.candidateType]||lc.candidateType)+' ('+(lc.relayProtocol||lc.protocol||'udp')+')';
+      log('Conectado ✓ · vía '+via);}}
     $('#tBitrate').textContent=kbps?Math.round(kbps).toLocaleString('es'):'0';
     $('#tRes').textContent=w?`${w}×${h}`:'—';
     $('#tRtt').textContent=rtt!=null?Math.round(rtt):'—';
@@ -509,15 +604,18 @@ function applyRoleUI(){document.body.classList.toggle('role-view',state.role==='
 
 async function connect(){
   state.room=($('#roomInput').value.trim()||'bethel-sala1').replace(/[^\w\-]/g,'');
-  state.broker=$('#brokerUrl').value.trim();state.wsUrl=$('#wsUrl').value.trim();state.turn=$('#turnUrl').value.trim();
+  state.broker=$('#brokerUrl').value.trim();state.wsUrl=$('#wsUrl').value.trim();
+  state.turn=$('#turnUrl').value.trim();state.turnUser=$('#turnUser').value.trim();state.turnCred=$('#turnCred').value.trim();
+  state.credUrl=$('#credUrl').value.trim();
   applyRoleUI();$('#dest').value=state.room;
+  banner(state.role==='view'?'RECIBIENDO':'EMITIENDO', state.role==='view'?'var(--bt)':'var(--live)');
   try{
+    await fetchIce();
     if(state.role==='push'||state.transport==='loop'){await getStream();}
     if(state.transport==='loop'){state.role='push';applyRoleUI();await connectLoopback();}
-    else{ if(state.role==='view'){$('#waiting').classList.add('show');setStatus('wait','EN ESPERA');} startSignaling(); }
+    else{ if(state.role==='view'){$('#waiting').classList.add('show');setStatus('wait','EN ESPERA');log('Buscando emisor en «'+state.room+'»…');} else log('Anunciando emisor en «'+state.room+'»…'); startSignaling(); }
     $('#gate').classList.add('hidden');buildResList();applyLatencyModel();startStats();
     const el=document.documentElement;setTimeout(()=>{if(el.requestFullscreen)el.requestFullscreen().catch(()=>{});},300);
-    toast(state.role==='push'?'Emitiendo · sala '+state.room:'Conectado · esperando video');
   }catch(e){console.error(e);toast('No se pudo acceder a cámara/micrófono');}
 }
 
@@ -552,6 +650,32 @@ $('#srcMon').onclick=()=>{$('#srcMon').classList.add('active');$('#srcMic').clas
 document.addEventListener('click',e=>{if(!$('#resPop').contains(e.target)&&!$('#resChip').contains(e.target))$('#resPop').classList.remove('show');});
 $('#btChip').onclick=()=>{$('#btState').classList.toggle('on');toast($('#btState').classList.contains('on')?'Audio Bluetooth activo':'Audio Bluetooth apagado');};
 
+/* ---------- protocolo de medios (UDP/TCP/SRT/WebRTC) ---------- */
+const PROTO={
+  webrtc:{name:'WebRTC',desc:'<b>Automático (recomendado).</b> Intenta ruta directa P2P y recurre a relay si hace falta. Equilibrio entre latencia y compatibilidad.'},
+  udp:{name:'UDP',desc:'<b>Mínima latencia.</b> Fuerza la ruta de medios por UDP (directo o relay UDP). La mejor para vivo, pero falla si la red bloquea UDP.'},
+  tcp:{name:'TCP',desc:'<b>Atraviesa firewalls estrictos.</b> Fuerza el relay por TCP/TLS (puerto 443). Más latencia. <b>Requiere un TURN</b> configurado en Ajustes ▸ TURN.'},
+  srt:{name:'SRT',desc:'<b>Contribución SRT con buffer de latencia.</b> El navegador no habla SRT: necesita una <b>pasarela</b> WebRTC→SRT (MediaMTX/ffmpeg) en un servidor. El enlace sigue siendo WebRTC hasta el gateway.'}
+};
+function setProto(p){
+  state.protocol=p;
+  document.querySelectorAll('#protoSeg button').forEach(b=>b.classList.toggle('on',b.dataset.p===p));
+  $('#protoDesc').innerHTML=PROTO[p].desc;
+  $('#protoChipVal').textContent=PROTO[p].name;
+  $('#srtPanel').classList.toggle('show',p==='srt');
+}
+document.querySelectorAll('#protoSeg button').forEach(b=>b.onclick=()=>{
+  const p=b.dataset.p;setProto(p);
+  if(p==='tcp'&&!(state.turn||'').startsWith('turn'))toast('TCP necesita un TURN: configúralo en Ajustes ▸ TURN');
+  if(p==='srt'){toast('SRT requiere pasarela WebRTC→SRT (te paso la receta)');return;}
+  if(primaryPc||Object.keys(peers).length||window._pc1){reEstablish();toast('Protocolo: '+PROTO[p].name);}
+});
+$('#protoChip').onclick=openDrawer;
+$('#srtUrl').oninput=e=>state.srtUrl=e.target.value.trim();
+$('#srtLat').oninput=e=>state.srtLatency=+e.target.value||120;
+$('#srtPass').oninput=e=>state.srtPass=e.target.value;
+setProto('webrtc');
+
 function openDrawer(){$('#drawer').classList.add('show');$('#scrim').classList.add('show');}
 function closeDrawer(){$('#drawer').classList.remove('show');$('#scrim').classList.remove('show');}
 $('#gearBtn').onclick=openDrawer;$('#latChip').onclick=openDrawer;$('#closeDrawer').onclick=closeDrawer;$('#scrim').onclick=closeDrawer;
@@ -570,19 +694,23 @@ $('#degSel').onchange=e=>{state.degradation=e.target.value;applyAllSenders();};
 $('#hintSel').onchange=e=>{state.contentHint=e.target.value;const vt=stream&&stream.getVideoTracks()[0];if(vt&&'contentHint'in vt)vt.contentHint=state.contentHint;};
 function bindTog(id,key,after){$(id).onclick=()=>{state[key]=!state[key];$(id).classList.toggle('on',state[key]);after&&after();};}
 bindTog('#aFecTog','afec',()=>reEstablish());bindTog('#dtxTog','dtx',()=>reEstablish());
+bindTog('#relayTog','forceRelay',()=>{if(primaryPc||Object.keys(peers).length)reEstablish();toast(state.forceRelay?'Forzando relay TURN':'Relay automático');});
 document.querySelectorAll('#transSegD button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#transSegD button').forEach(x=>x.classList.remove('on'));b.classList.add('on');state.transport=b.dataset.t;toast('Transporte: '+state.transport+' (reinicia para aplicar)');});
 
 window.addEventListener('beforeunload',()=>{try{sig&&sig.stop();}catch(e){}});
 
 /* ---------- parámetros de URL (estilo VDO.Ninja) ---------- */
 (function initFromURL(){const q=new URLSearchParams(location.search);
-  const push=q.get('push'),view=q.get('view'),server=q.get('server'),ws=q.get('ws');
+  const push=q.get('push'),view=q.get('view'),server=q.get('server'),ws=q.get('ws'),cred=q.get('cred');
   if(server){state.broker=server;$('#brokerUrl').value=server;}
   if(ws){state.transport='ws';state.wsUrl=ws;$('#wsUrl').value=ws;}
+  if(cred){state.credUrl=cred;$('#credUrl').value=cred;}
   const room=push||view;if(room){$('#roomInput').value=room;$('#shareHint').textContent='?view='+room;
     state.role=push?'push':'view';
     document.querySelectorAll('#roleSeg button').forEach(x=>x.classList.toggle('on',x.dataset.role===state.role));
     $('#connectBtn').textContent=state.role==='push'?'Emitir':'Recibir';
+    $('#roleSeg').classList.add('locked');
+    const rl=$('#roleLock');rl.classList.add('show');rl.textContent=state.role==='push'?'Rol fijado por el enlace: EMISOR':'Rol fijado por el enlace: RECEPTOR';
     $('#gate').querySelector('.tag').textContent=state.role==='push'?'Listo para emitir en la sala «'+room+'». Toca Emitir para iniciar cámara.':'Listo para ver la sala «'+room+'». Toca Recibir para conectar.';}
 })();
 </script>
